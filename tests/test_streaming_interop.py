@@ -12,6 +12,7 @@ from capns_interop.scenarios.base import ScenarioStatus
 
 
 @pytest.mark.asyncio
+@pytest.mark.timeout(30)
 @pytest.mark.parametrize("plugin_name", ["rust", "python", "swift"])
 async def test_stream_chunks(plugin_binaries, plugin_name):
     """Test streaming multiple chunks."""
@@ -29,6 +30,7 @@ async def test_stream_chunks(plugin_binaries, plugin_name):
 
 
 @pytest.mark.asyncio
+@pytest.mark.timeout(30)
 @pytest.mark.parametrize("plugin_name", ["rust", "python", "swift"])
 async def test_large_payload(plugin_binaries, plugin_name):
     """Test large payload transfer (1MB)."""
@@ -46,6 +48,7 @@ async def test_large_payload(plugin_binaries, plugin_name):
 
 
 @pytest.mark.asyncio
+@pytest.mark.timeout(30)
 @pytest.mark.parametrize("plugin_name", ["rust", "python", "swift"])
 async def test_binary_data(plugin_binaries, plugin_name):
     """Test binary data with all byte values."""
@@ -63,6 +66,7 @@ async def test_binary_data(plugin_binaries, plugin_name):
 
 
 @pytest.mark.asyncio
+@pytest.mark.timeout(30)
 @pytest.mark.parametrize("plugin_name", ["rust", "python", "swift"])
 async def test_stream_ordering(plugin_binaries, plugin_name):
     """Test streaming chunk ordering."""

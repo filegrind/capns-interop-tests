@@ -12,6 +12,7 @@ from capns_interop.scenarios.base import ScenarioStatus
 
 
 @pytest.mark.asyncio
+@pytest.mark.timeout(30)
 @pytest.mark.parametrize("plugin_name", ["rust", "python", "swift"])
 async def test_throw_error(plugin_binaries, plugin_name):
     """Test error propagation from plugin to host."""
@@ -29,6 +30,7 @@ async def test_throw_error(plugin_binaries, plugin_name):
 
 
 @pytest.mark.asyncio
+@pytest.mark.timeout(30)
 @pytest.mark.parametrize("plugin_name", ["rust", "python", "swift"])
 async def test_invalid_cap(plugin_binaries, plugin_name):
     """Test calling non-existent capability."""
@@ -46,6 +48,7 @@ async def test_invalid_cap(plugin_binaries, plugin_name):
 
 
 @pytest.mark.asyncio
+@pytest.mark.timeout(30)
 @pytest.mark.parametrize("plugin_name", ["rust", "python", "swift"])
 async def test_malformed_payload(plugin_binaries, plugin_name):
     """Test sending malformed JSON payload."""
@@ -63,6 +66,7 @@ async def test_malformed_payload(plugin_binaries, plugin_name):
 
 
 @pytest.mark.asyncio
+@pytest.mark.timeout(30)
 @pytest.mark.parametrize("plugin_name", ["rust", "python", "swift"])
 async def test_graceful_shutdown(plugin_binaries, plugin_name):
     """Test graceful shutdown after operations."""

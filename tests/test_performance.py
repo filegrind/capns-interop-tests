@@ -12,6 +12,7 @@ from capns_interop.scenarios.base import ScenarioStatus
 
 
 @pytest.mark.asyncio
+@pytest.mark.timeout(60)
 @pytest.mark.parametrize("plugin_name", ["rust", "python", "swift"])
 async def test_latency_benchmark(plugin_binaries, plugin_name):
     """Benchmark request/response latency."""
@@ -33,6 +34,7 @@ async def test_latency_benchmark(plugin_binaries, plugin_name):
 
 
 @pytest.mark.asyncio
+@pytest.mark.timeout(60)
 @pytest.mark.parametrize("plugin_name", ["rust", "python", "swift"])
 async def test_throughput_benchmark(plugin_binaries, plugin_name):
     """Benchmark throughput (requests per second)."""
@@ -54,6 +56,7 @@ async def test_throughput_benchmark(plugin_binaries, plugin_name):
 
 
 @pytest.mark.asyncio
+@pytest.mark.timeout(60)
 @pytest.mark.parametrize("plugin_name", ["rust", "python", "swift"])
 async def test_large_payload_throughput(plugin_binaries, plugin_name):
     """Benchmark large payload transfer speed."""
@@ -75,6 +78,7 @@ async def test_large_payload_throughput(plugin_binaries, plugin_name):
 
 
 @pytest.mark.asyncio
+@pytest.mark.timeout(60)
 @pytest.mark.parametrize("plugin_name", ["rust", "python", "swift"])
 async def test_concurrent_stress(plugin_binaries, plugin_name):
     """Test concurrent request handling."""

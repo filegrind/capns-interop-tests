@@ -11,6 +11,7 @@ from capns_interop.scenarios.base import ScenarioStatus
 
 
 @pytest.mark.asyncio
+@pytest.mark.timeout(30)
 @pytest.mark.parametrize("plugin_name", ["rust", "python", "swift"])
 async def test_basic_heartbeat(plugin_binaries, plugin_name):
     """Test basic heartbeat during operation."""
@@ -28,6 +29,7 @@ async def test_basic_heartbeat(plugin_binaries, plugin_name):
 
 
 @pytest.mark.asyncio
+@pytest.mark.timeout(30)
 @pytest.mark.parametrize("plugin_name", ["rust", "python", "swift"])
 async def test_long_operation_heartbeat(plugin_binaries, plugin_name):
     """Test heartbeat during long operation (2 seconds)."""
@@ -45,6 +47,7 @@ async def test_long_operation_heartbeat(plugin_binaries, plugin_name):
 
 
 @pytest.mark.asyncio
+@pytest.mark.timeout(30)
 @pytest.mark.parametrize("plugin_name", ["rust", "python", "swift"])
 async def test_status_updates(plugin_binaries, plugin_name):
     """Test status updates during processing."""

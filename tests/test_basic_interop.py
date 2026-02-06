@@ -14,6 +14,7 @@ from capns_interop.scenarios.base import ScenarioStatus
 
 
 @pytest.mark.asyncio
+@pytest.mark.timeout(30)
 async def test_rust_echo(rust_plugin):
     """Test echo capability with Rust plugin."""
     orchestrator = Orchestrator()
@@ -27,6 +28,7 @@ async def test_rust_echo(rust_plugin):
 
 
 @pytest.mark.asyncio
+@pytest.mark.timeout(30)
 async def test_rust_double(rust_plugin):
     """Test double capability with Rust plugin."""
     orchestrator = Orchestrator()
@@ -40,6 +42,7 @@ async def test_rust_double(rust_plugin):
 
 
 @pytest.mark.asyncio
+@pytest.mark.timeout(30)
 async def test_rust_binary_echo(rust_plugin):
     """Test binary echo with Rust plugin."""
     orchestrator = Orchestrator()
@@ -55,6 +58,7 @@ async def test_rust_binary_echo(rust_plugin):
 
 
 @pytest.mark.asyncio
+@pytest.mark.timeout(30)
 async def test_rust_get_manifest(rust_plugin):
     """Test manifest retrieval with Rust plugin."""
     orchestrator = Orchestrator()
@@ -70,6 +74,7 @@ async def test_rust_get_manifest(rust_plugin):
 
 
 @pytest.mark.asyncio
+@pytest.mark.timeout(30)
 @pytest.mark.parametrize("plugin_name", ["rust", "python", "swift"])
 async def test_echo_all_plugins(plugin_binaries, plugin_name):
     """Test echo capability across all plugin implementations."""
