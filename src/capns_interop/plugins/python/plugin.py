@@ -17,6 +17,7 @@ sys.path.insert(0, str(capns_py_path))
 from capns.plugin_runtime import PluginRuntime
 from capns.manifest import CapManifest, Cap
 from capns.cap_urn import CapUrn, CapUrnBuilder
+from capns.caller import CapArgumentValue
 
 
 def build_manifest() -> CapManifest:
@@ -227,7 +228,7 @@ def handle_throw_error(payload: bytes, emitter, peer) -> bytes:
 def handle_peer_echo(payload: bytes, emitter, peer) -> bytes:
     """Peer echo - calls host's echo via PeerInvoker."""
     # Call host's echo capability
-    result_chunks = peer.invoke("cap:in=*;op=echo;out=*", [("media:bytes", payload)])
+    result_chunks = peer.invoke("cap:in=*;op=echo;out=*", [CapArgumentValue("media:bytes", payload)])
 
     # Collect response
     result = b""
@@ -244,7 +245,7 @@ def handle_nested_call(payload: bytes, emitter, peer) -> bytes:
 
     # Call host's double capability
     input_data = json.dumps({"value": value}).encode()
-    result_chunks = peer.invoke("cap:in=*;op=double;out=*", [("media:json", input_data)])
+    result_chunks = peer.invoke("cap:in=*;op=double;out=*", [CapArgumentValue("media:json", input_data)])
 
     # Collect response
     result_bytes = b""

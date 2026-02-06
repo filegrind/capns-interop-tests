@@ -187,12 +187,12 @@ func handleNestedCall(payload: Data, emitter: CborStreamEmitter, peer: CborPeerI
         resultBytes.append(chunk)
     }
 
-    let hostResult = try JSONSerialization.jsonObject(with: resultBytes) as! Int
+    let hostResult = try JSONSerialization.jsonObject(with: resultBytes, options: .allowFragments) as! Int
 
     // Double again locally
     let finalResult = hostResult * 2
 
-    return try JSONSerialization.data(withJSONObject: finalResult)
+    return try JSONSerialization.data(withJSONObject: finalResult, options: .fragmentsAllowed)
 }
 
 func handleHeartbeatStress(payload: Data, emitter: CborStreamEmitter, peer: CborPeerInvoker) throws -> Data {
