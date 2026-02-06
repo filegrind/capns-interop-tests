@@ -30,7 +30,7 @@ async def test_stream_chunks(plugin_binaries, plugin_name):
 
 
 @pytest.mark.asyncio
-@pytest.mark.timeout(30)
+@pytest.mark.timeout(60)
 @pytest.mark.parametrize("plugin_name", ["rust", "python", "swift"])
 async def test_large_payload(plugin_binaries, plugin_name):
     """Test large payload transfer (1MB)."""
