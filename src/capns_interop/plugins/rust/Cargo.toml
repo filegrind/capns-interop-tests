@@ -1,0 +1,13 @@
+[package]
+name = "capns-interop-plugin-rust"
+version = "1.0.0"
+edition = "2021"
+
+[[bin]]
+name = "capns-interop-plugin-rust"
+path = "src/main.rs"
+
+[dependencies]
+capns = { path = "../../../../../capns" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
