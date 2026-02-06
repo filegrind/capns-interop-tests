@@ -4,19 +4,20 @@ import CapNsCbor
 // MARK: - Manifest Building
 
 func buildManifest() -> [String: Any] {
+    // URNs must match exactly what TEST_CAPS uses
     let caps: [[String: Any]] = [
         [
-            "urn": "cap:in=\"media:string;form=scalar;textable\";op=echo;out=\"media:string;form=scalar;textable\"",
+            "urn": "cap:in=\"media:string;textable;form=scalar\";op=echo;out=\"media:string;textable;form=scalar\"",
             "title": "Echo",
             "command": "echo"
         ],
         [
-            "urn": "cap:in=\"media:form=scalar;number\";op=double;out=\"media:form=scalar;number\"",
+            "urn": "cap:in=\"media:number;form=scalar\";op=double;out=\"media:number;form=scalar\"",
             "title": "Double",
             "command": "double"
         ],
         [
-            "urn": "cap:in=\"media:form=scalar;number\";op=stream_chunks;out=\"media:streamable;string;textable\"",
+            "urn": "cap:in=\"media:number;form=scalar\";op=stream_chunks;out=\"media:string;textable;streamable\"",
             "title": "Stream Chunks",
             "command": "stream_chunks"
         ],
@@ -26,42 +27,42 @@ func buildManifest() -> [String: Any] {
             "command": "binary_echo"
         ],
         [
-            "urn": "cap:in=\"media:form=scalar;number\";op=slow_response;out=\"media:string;form=scalar;textable\"",
+            "urn": "cap:in=\"media:number;form=scalar\";op=slow_response;out=\"media:string;textable;form=scalar\"",
             "title": "Slow Response",
             "command": "slow_response"
         ],
         [
-            "urn": "cap:in=\"media:form=scalar;number\";op=generate_large;out=\"media:bytes\"",
+            "urn": "cap:in=\"media:number;form=scalar\";op=generate_large;out=\"media:bytes\"",
             "title": "Generate Large",
             "command": "generate_large"
         ],
         [
-            "urn": "cap:in=\"media:form=scalar;number\";op=with_status;out=\"media:string;form=scalar;textable\"",
+            "urn": "cap:in=\"media:number;form=scalar\";op=with_status;out=\"media:string;textable;form=scalar\"",
             "title": "With Status",
             "command": "with_status"
         ],
         [
-            "urn": "cap:in=\"media:string;form=scalar;textable\";op=throw_error;out=\"media:void\"",
+            "urn": "cap:in=\"media:string;textable;form=scalar\";op=throw_error;out=\"media:void\"",
             "title": "Throw Error",
             "command": "throw_error"
         ],
         [
-            "urn": "cap:in=\"media:string;form=scalar;textable\";op=peer_echo;out=\"media:string;form=scalar;textable\"",
+            "urn": "cap:in=\"media:string;textable;form=scalar\";op=peer_echo;out=\"media:string;textable;form=scalar\"",
             "title": "Peer Echo",
             "command": "peer_echo"
         ],
         [
-            "urn": "cap:in=\"media:form=scalar;number\";op=nested_call;out=\"media:string;form=scalar;textable\"",
+            "urn": "cap:in=\"media:number;form=scalar\";op=nested_call;out=\"media:string;textable;form=scalar\"",
             "title": "Nested Call",
             "command": "nested_call"
         ],
         [
-            "urn": "cap:in=\"media:form=scalar;number\";op=heartbeat_stress;out=\"media:string;form=scalar;textable\"",
+            "urn": "cap:in=\"media:number;form=scalar\";op=heartbeat_stress;out=\"media:string;textable;form=scalar\"",
             "title": "Heartbeat Stress",
             "command": "heartbeat_stress"
         ],
         [
-            "urn": "cap:in=\"media:form=scalar;number\";op=concurrent_stress;out=\"media:string;form=scalar;textable\"",
+            "urn": "cap:in=\"media:number;form=scalar\";op=concurrent_stress;out=\"media:string;textable;form=scalar\"",
             "title": "Concurrent Stress",
             "command": "concurrent_stress"
         ],
@@ -78,6 +79,12 @@ func buildManifest() -> [String: Any] {
         "description": "Interoperability testing plugin (Swift)",
         "caps": caps
     ]
+}
+
+func buildManifestJSON() -> String {
+    let manifest = buildManifest()
+    let data = try! JSONSerialization.data(withJSONObject: manifest, options: [.sortedKeys])
+    return String(data: data, encoding: .utf8)!
 }
 
 // MARK: - Handlers
@@ -99,7 +106,7 @@ func handleStreamChunks(payload: Data, emitter: CborStreamEmitter, peer: CborPee
 
     for i in 0..<count {
         let chunk = "chunk-\(i)".data(using: .utf8)!
-        emitter.emitBytes(chunk)
+        emitter.emit(chunk: chunk)
     }
 
     return "done".data(using: .utf8)!
@@ -138,7 +145,7 @@ func handleWithStatus(payload: Data, emitter: CborStreamEmitter, peer: CborPeerI
 
     for i in 0..<steps {
         let status = "step \(i)"
-        emitter.emitStatus("processing", details: status)
+        emitter.emitStatus(operation: "processing", details: status)
         Thread.sleep(forTimeInterval: 0.01)
     }
 
@@ -153,10 +160,12 @@ func handleThrowError(payload: Data, emitter: CborStreamEmitter, peer: CborPeerI
 
 func handlePeerEcho(payload: Data, emitter: CborStreamEmitter, peer: CborPeerInvoker) throws -> Data {
     // Call host's echo capability
-    let chunks = try peer.invoke(capUrn: "cap:in=*;op=echo;out=*", args: [("media:bytes", payload)])
+    let arg = CborCapArgumentValue(mediaUrn: "media:bytes", value: payload)
+    let chunks = try peer.invoke(capUrn: "cap:in=*;op=echo;out=*", arguments: [arg])
 
     var result = Data()
-    for chunk in chunks {
+    for chunkResult in chunks {
+        let chunk = try chunkResult.get()
         result.append(chunk)
     }
 
@@ -169,10 +178,12 @@ func handleNestedCall(payload: Data, emitter: CborStreamEmitter, peer: CborPeerI
 
     // Call host's double capability
     let inputData = try JSONSerialization.data(withJSONObject: ["value": value])
-    let chunks = try peer.invoke(capUrn: "cap:in=*;op=double;out=*", args: [("media:json", inputData)])
+    let arg = CborCapArgumentValue(mediaUrn: "media:json", value: inputData)
+    let chunks = try peer.invoke(capUrn: "cap:in=*;op=double;out=*", arguments: [arg])
 
     var resultBytes = Data()
-    for chunk in chunks {
+    for chunkResult in chunks {
+        let chunk = try chunkResult.get()
         resultBytes.append(chunk)
     }
 
@@ -220,24 +231,22 @@ func handleGetManifest(payload: Data, emitter: CborStreamEmitter, peer: CborPeer
 
 // MARK: - Main
 
-let manifest = buildManifest()
-let manifestJSON = try! JSONSerialization.data(withJSONObject: manifest)
-
+let manifestJSON = buildManifestJSON()
 let runtime = try! CborPluginRuntime(manifestJSON: manifestJSON)
 
-// Register all handlers
-runtime.register(capUrn: "cap:in=*;op=echo;out=*", handler: handleEcho)
-runtime.register(capUrn: "cap:in=*;op=double;out=*", handler: handleDouble)
-runtime.register(capUrn: "cap:in=*;op=stream_chunks;out=*", handler: handleStreamChunks)
-runtime.register(capUrn: "cap:in=*;op=binary_echo;out=*", handler: handleBinaryEcho)
-runtime.register(capUrn: "cap:in=*;op=slow_response;out=*", handler: handleSlowResponse)
-runtime.register(capUrn: "cap:in=*;op=generate_large;out=*", handler: handleGenerateLarge)
-runtime.register(capUrn: "cap:in=*;op=with_status;out=*", handler: handleWithStatus)
-runtime.register(capUrn: "cap:in=*;op=throw_error;out=*", handler: handleThrowError)
-runtime.register(capUrn: "cap:in=*;op=peer_echo;out=*", handler: handlePeerEcho)
-runtime.register(capUrn: "cap:in=*;op=nested_call;out=*", handler: handleNestedCall)
-runtime.register(capUrn: "cap:in=*;op=heartbeat_stress;out=*", handler: handleHeartbeatStress)
-runtime.register(capUrn: "cap:in=*;op=concurrent_stress;out=*", handler: handleConcurrentStress)
-runtime.register(capUrn: "cap:in=*;op=get_manifest;out=*", handler: handleGetManifest)
+// Register all handlers with exact URNs
+runtime.register(capUrn: "cap:in=\"media:string;textable;form=scalar\";op=echo;out=\"media:string;textable;form=scalar\"", handler: handleEcho)
+runtime.register(capUrn: "cap:in=\"media:number;form=scalar\";op=double;out=\"media:number;form=scalar\"", handler: handleDouble)
+runtime.register(capUrn: "cap:in=\"media:number;form=scalar\";op=stream_chunks;out=\"media:string;textable;streamable\"", handler: handleStreamChunks)
+runtime.register(capUrn: "cap:in=\"media:bytes\";op=binary_echo;out=\"media:bytes\"", handler: handleBinaryEcho)
+runtime.register(capUrn: "cap:in=\"media:number;form=scalar\";op=slow_response;out=\"media:string;textable;form=scalar\"", handler: handleSlowResponse)
+runtime.register(capUrn: "cap:in=\"media:number;form=scalar\";op=generate_large;out=\"media:bytes\"", handler: handleGenerateLarge)
+runtime.register(capUrn: "cap:in=\"media:number;form=scalar\";op=with_status;out=\"media:string;textable;form=scalar\"", handler: handleWithStatus)
+runtime.register(capUrn: "cap:in=\"media:string;textable;form=scalar\";op=throw_error;out=\"media:void\"", handler: handleThrowError)
+runtime.register(capUrn: "cap:in=\"media:string;textable;form=scalar\";op=peer_echo;out=\"media:string;textable;form=scalar\"", handler: handlePeerEcho)
+runtime.register(capUrn: "cap:in=\"media:number;form=scalar\";op=nested_call;out=\"media:string;textable;form=scalar\"", handler: handleNestedCall)
+runtime.register(capUrn: "cap:in=\"media:number;form=scalar\";op=heartbeat_stress;out=\"media:string;textable;form=scalar\"", handler: handleHeartbeatStress)
+runtime.register(capUrn: "cap:in=\"media:number;form=scalar\";op=concurrent_stress;out=\"media:string;textable;form=scalar\"", handler: handleConcurrentStress)
+runtime.register(capUrn: "cap:in=\"media:void\";op=get_manifest;out=\"media:json\"", handler: handleGetManifest)
 
 try! runtime.run()
