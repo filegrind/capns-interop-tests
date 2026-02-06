@@ -19,15 +19,14 @@ class PeerEchoScenario(Scenario):
     async def execute(self, host, plugin) -> ScenarioResult:
         async def run():
             test_input = b"Hello from host!"
-            input_json = json.dumps({"value": test_input.decode()}).encode()
 
-            # Plugin will call back to host's echo
-            response = await host.call(TEST_CAPS["peer_echo"], input_json, "media:json")
+            # Plugin will call back to host's echo with the raw bytes
+            # peer_echo handler sends the input as-is to host's echo
+            response = await host.call(TEST_CAPS["peer_echo"], test_input, "media:bytes")
 
             output = response.final_payload()
             # The plugin echoes back what the host echo returned
-            result = json.loads(output)
-            assert result == test_input.decode(), f"Expected {test_input.decode()!r}, got {result!r}"
+            assert output == test_input, f"Expected {test_input!r}, got {output!r}"
 
         return await self._timed_execute(run)
 
@@ -73,14 +72,12 @@ class BidirectionalEchoScenario(Scenario):
     async def execute(self, host, plugin) -> ScenarioResult:
         async def run():
             # Test multiple peer calls in sequence
-            test_values = ["Test1", "Test2", "Test3"]
+            test_values = [b"Test1", b"Test2", b"Test3"]
 
             for test_val in test_values:
-                input_json = json.dumps({"value": test_val}).encode()
-                response = await host.call(TEST_CAPS["peer_echo"], input_json, "media:json")
+                response = await host.call(TEST_CAPS["peer_echo"], test_val, "media:bytes")
 
                 output = response.final_payload()
-                result = json.loads(output)
-                assert result == test_val, f"Expected {test_val!r}, got {result!r}"
+                assert output == test_val, f"Expected {test_val!r}, got {output!r}"
 
         return await self._timed_execute(run)

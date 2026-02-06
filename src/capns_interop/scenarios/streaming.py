@@ -28,9 +28,9 @@ class StreamChunksScenario(Scenario):
 
             # Collect all chunks
             chunks = []
-            for chunk_data in response.chunks:
-                if chunk_data.chunk_type == "data":
-                    chunks.append(chunk_data.data.decode())
+            for chunk in response.chunks:
+                # Each chunk has payload (bytes) attribute
+                chunks.append(chunk.payload.decode())
 
             # Verify we got all chunks in order
             assert len(chunks) >= chunk_count, f"Expected at least {chunk_count} chunks, got {len(chunks)}"
@@ -116,9 +116,8 @@ class StreamOrderingScenario(Scenario):
 
             # Collect chunks in order
             chunks = []
-            for chunk_data in response.chunks:
-                if chunk_data.chunk_type == "data":
-                    chunks.append(chunk_data.data.decode())
+            for chunk in response.chunks:
+                chunks.append(chunk.payload.decode())
 
             # Verify ordering
             for i in range(chunk_count):
