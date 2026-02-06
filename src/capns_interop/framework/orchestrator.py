@@ -1,6 +1,7 @@
 """Coordinates plugin spawning and scenario execution."""
 
 import sys
+import json
 from pathlib import Path
 
 # Add capns-py to path
@@ -32,6 +33,9 @@ class Orchestrator:
 
             # Create host with plugin's streams
             host = await AsyncPluginHost.new(stdout, stdin)
+
+            # Register host capabilities for bidirectional communication
+            await self._register_host_capabilities(host)
 
             # Verify manifest received
             manifest = host.get_plugin_manifest()
@@ -67,3 +71,23 @@ class Orchestrator:
                 duration_ms=0.0,
                 error_message=error_detail,
             )
+
+    async def _register_host_capabilities(self, host: AsyncPluginHost):
+        """Register host-side capabilities for bidirectional testing.
+
+        Plugins can invoke these capabilities via PeerInvoker.
+        """
+        # Echo capability - returns input as-is
+        async def echo_handler(payload: bytes) -> bytes:
+            return payload
+
+        host.register_capability("cap:in=*;op=echo;out=*", echo_handler)
+
+        # Double capability - doubles a number
+        async def double_handler(payload: bytes) -> bytes:
+            data = json.loads(payload)
+            value = data["value"]
+            result = value * 2
+            return json.dumps(result).encode()
+
+        host.register_capability("cap:in=*;op=double;out=*", double_handler)
