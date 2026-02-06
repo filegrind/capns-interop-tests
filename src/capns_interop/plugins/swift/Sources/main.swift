@@ -1,5 +1,5 @@
 import Foundation
-import capns_objc
+import CapNsCbor
 
 // MARK: - Manifest Building
 
