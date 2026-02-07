@@ -257,3 +257,4 @@ temp/
 # bindata.go
 .ws/
 .scrap/
+src/capns_interop/plugins/go/capns-interop-plugin-go
