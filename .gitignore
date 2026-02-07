@@ -201,3 +201,59 @@ fastlane/screenshots/**/*.png
 fastlane/test_output
 
 .ws/
+
+# Typical Go project .gitignore
+
+# Binaries for programs and plugins
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+coverage.out
+
+# Build output directories
+/bin/
+/build/
+/dist/
+
+# Dependency directories (uncomment if you vendor dependencies)
+vendor/
+Godeps/
+_glide/
+
+# Go workspace and cache
+go.work
+pkg/
+*.modcache
+
+# IDEs and editors
+.vscode/
+.idea/
+*.iml
+*.sublime-workspace
+*.sublime-project
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Swap / temp files
+*~
+*.swp
+*.tmp
+tmp/
+temp/
+
+# Logs and environment
+*.log
+.env
+.env.local
+*.env
+
+# Generated files (optional)
+# *.pb.go
+# bindata.go
+.ws/
+.scrap/

@@ -75,7 +75,7 @@ async def test_rust_get_manifest(rust_plugin):
 
 @pytest.mark.asyncio
 @pytest.mark.timeout(30)
-@pytest.mark.parametrize("plugin_name", ["rust", "python", "swift"])
+@pytest.mark.parametrize("plugin_name", ["rust", "python", "swift", "go"])
 async def test_echo_all_plugins(plugin_binaries, plugin_name):
     """Test echo capability across all plugin implementations."""
     plugin_path = plugin_binaries[plugin_name]

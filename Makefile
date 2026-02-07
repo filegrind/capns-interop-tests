@@ -1,7 +1,7 @@
-.PHONY: all build-rust build-python build-swift clean test test-matrix test-quick
+.PHONY: all build-rust build-python build-swift build-go clean test test-matrix test-quick
 
 # Build all plugins
-all: build-rust build-python build-swift
+all: build-rust build-python build-swift build-go
 
 # Rust plugin
 build-rust:
@@ -24,11 +24,19 @@ build-swift:
 	mkdir -p artifacts/build/swift
 	cp src/capns_interop/plugins/swift/.build/release/capns-interop-plugin-swift artifacts/build/swift/
 
+# Go plugin
+build-go:
+	@echo "Building Go plugin..."
+	cd src/capns_interop/plugins/go && go build -o capns-interop-plugin-go .
+	mkdir -p artifacts/build/go
+	cp src/capns_interop/plugins/go/capns-interop-plugin-go artifacts/build/go/
+
 # Clean build artifacts
 clean:
 	rm -rf artifacts/
 	cd src/capns_interop/plugins/rust && cargo clean || true
 	cd src/capns_interop/plugins/swift && swift package clean || true
+	rm -f src/capns_interop/plugins/go/capns-interop-plugin-go
 
 # Run tests (builds first)
 test: all

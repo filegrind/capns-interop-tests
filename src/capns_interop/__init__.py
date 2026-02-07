@@ -19,4 +19,4 @@ TEST_CAPS = {
     "get_manifest": 'cap:in="media:void";op=get_manifest;out="media:json"',
 }
 
-SUPPORTED_LANGUAGES = ["rust", "python", "swift"]
+SUPPORTED_LANGUAGES = ["rust", "python", "swift", "go"]

@@ -60,7 +60,7 @@ class LargePayloadScenario(Scenario):
 
             response = await host.call(TEST_CAPS["generate_large"], input_json, "media:json")
 
-            output = response.final_payload()
+            output = response.concatenated()
             assert len(output) == size, f"Expected {size} bytes, got {len(output)}"
 
             # Verify pattern

@@ -19,6 +19,7 @@ def plugin_binaries(project_root):
         "rust": artifacts / "rust" / "capns-interop-plugin-rust",
         "python": artifacts / "python" / "plugin.py",
         "swift": artifacts / "swift" / "capns-interop-plugin-swift",
+        "go": artifacts / "go" / "capns-interop-plugin-go",
     }
 
     # Verify at least rust exists for basic tests
@@ -48,3 +49,11 @@ def swift_plugin(plugin_binaries):
     if not plugin_binaries["swift"].exists():
         pytest.skip("Swift plugin not built. Run 'make build-swift' first.")
     return plugin_binaries["swift"]
+
+
+@pytest.fixture
+def go_plugin(plugin_binaries):
+    """Return path to Go plugin."""
+    if not plugin_binaries["go"].exists():
+        pytest.skip("Go plugin not built. Run 'make build-go' first.")
+    return plugin_binaries["go"]

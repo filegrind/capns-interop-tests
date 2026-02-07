@@ -125,7 +125,7 @@ class LargePayloadThroughputScenario(Scenario):
 
             start = time.perf_counter()
             response = await host.call(TEST_CAPS["generate_large"], input_json, "media:json")
-            output = response.final_payload()
+            output = response.concatenated()
             elapsed = time.perf_counter() - start
 
             assert len(output) == payload_size
