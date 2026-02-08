@@ -1,5 +1,6 @@
 import Foundation
 import CapNsCbor
+import CryptoKit
 
 // MARK: - Manifest Building
 
@@ -70,6 +71,41 @@ func buildManifest() -> [String: Any] {
             "urn": "cap:in=\"media:void\";op=get_manifest;out=\"media:json\"",
             "title": "Get Manifest",
             "command": "get_manifest"
+        ],
+        [
+            "urn": "cap:in=\"media:bytes\";op=process_large;out=\"media:json\"",
+            "title": "Process Large",
+            "command": "process_large"
+        ],
+        [
+            "urn": "cap:in=\"media:bytes\";op=hash_incoming;out=\"media:string;textable;form=scalar\"",
+            "title": "Hash Incoming",
+            "command": "hash_incoming"
+        ],
+        [
+            "urn": "cap:in=\"media:bytes\";op=verify_binary;out=\"media:string;textable;form=scalar\"",
+            "title": "Verify Binary",
+            "command": "verify_binary"
+        ],
+        [
+            "urn": "cap:in=\"media:bytes\";op=read_file_info;out=\"media:json\"",
+            "title": "Read File Info",
+            "command": "read_file_info",
+            "args": [
+                [
+                    "media_urn": "media:file-path;textable;form=scalar",
+                    "required": true,
+                    "sources": [
+                        ["stdin": "media:bytes"],
+                        ["position": 0]
+                    ],
+                    "arg_description": "Path to file to read"
+                ] as [String: Any]
+            ],
+            "output": [
+                "media_urn": "media:json",
+                "output_description": "File size and SHA256 checksum"
+            ] as [String: Any]
         ]
     ]
 
@@ -229,6 +265,55 @@ func handleGetManifest(payload: Data, emitter: CborStreamEmitter, peer: CborPeer
     return try JSONSerialization.data(withJSONObject: manifest)
 }
 
+func handleProcessLarge(payload: Data, emitter: CborStreamEmitter, peer: CborPeerInvoker) throws -> Data {
+    let size = payload.count
+    let hash = SHA256.hash(data: payload)
+    let checksum = hash.compactMap { String(format: "%02x", $0) }.joined()
+
+    let result: [String: Any] = [
+        "size": size,
+        "checksum": checksum
+    ]
+
+    return try JSONSerialization.data(withJSONObject: result)
+}
+
+func handleHashIncoming(payload: Data, emitter: CborStreamEmitter, peer: CborPeerInvoker) throws -> Data {
+    let hash = SHA256.hash(data: payload)
+    let checksum = hash.compactMap { String(format: "%02x", $0) }.joined()
+    return checksum.data(using: .utf8)!
+}
+
+func handleVerifyBinary(payload: Data, emitter: CborStreamEmitter, peer: CborPeerInvoker) throws -> Data {
+    var present = Set<UInt8>()
+
+    for byte in payload {
+        present.insert(byte)
+    }
+
+    if present.count == 256 {
+        return "ok".data(using: .utf8)!
+    } else {
+        let missing = (0...255).filter { !present.contains(UInt8($0)) }
+        let message = "missing \(missing.count) values"
+        return message.data(using: .utf8)!
+    }
+}
+
+func handleReadFileInfo(payload: Data, emitter: CborStreamEmitter, peer: CborPeerInvoker) throws -> Data {
+    // Payload is already file bytes (auto-converted by runtime from file-path)
+    let size = payload.count
+    let hash = SHA256.hash(data: payload)
+    let checksum = hash.compactMap { String(format: "%02x", $0) }.joined()
+
+    let result: [String: Any] = [
+        "size": size,
+        "checksum": checksum
+    ]
+
+    return try JSONSerialization.data(withJSONObject: result)
+}
+
 // MARK: - Main
 
 let manifestJSON = buildManifestJSON()
@@ -248,5 +333,9 @@ runtime.register(capUrn: "cap:in=\"media:number;form=scalar\";op=nested_call;out
 runtime.register(capUrn: "cap:in=\"media:number;form=scalar\";op=heartbeat_stress;out=\"media:string;textable;form=scalar\"", handler: handleHeartbeatStress)
 runtime.register(capUrn: "cap:in=\"media:number;form=scalar\";op=concurrent_stress;out=\"media:string;textable;form=scalar\"", handler: handleConcurrentStress)
 runtime.register(capUrn: "cap:in=\"media:void\";op=get_manifest;out=\"media:json\"", handler: handleGetManifest)
+runtime.register(capUrn: "cap:in=\"media:bytes\";op=process_large;out=\"media:json\"", handler: handleProcessLarge)
+runtime.register(capUrn: "cap:in=\"media:bytes\";op=hash_incoming;out=\"media:string;textable;form=scalar\"", handler: handleHashIncoming)
+runtime.register(capUrn: "cap:in=\"media:bytes\";op=verify_binary;out=\"media:string;textable;form=scalar\"", handler: handleVerifyBinary)
+runtime.register(capUrn: "cap:in=\"media:bytes\";op=read_file_info;out=\"media:json\"", handler: handleReadFileInfo)
 
 try! runtime.run()

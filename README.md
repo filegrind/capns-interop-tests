@@ -63,4 +63,33 @@ When Go/JavaScript implement CBOR runtimes:
 2. Add Makefile build target
 3. Update `SUPPORTED_LANGUAGES` constant
 4. Matrix automatically expands from 9 to 25 configurations
-# capns-interop-tests
+
+## Usage
+
+# Run all interop tests (both chunking and file-path)
+  PYTHONPATH=src python -m pytest tests/test_chunking_interop.py tests/test_filepath_interop.py -v
+
+  # Or run all tests in the tests directory
+  PYTHONPATH=src python -m pytest tests/ -v
+
+  # For a summary view (less verbose)
+  PYTHONPATH=src python -m pytest tests/ -v --tb=short
+
+  # To see timing
+  PYTHONPATH=src python -m pytest tests/ -v --durations=10
+
+  Expected Results:
+  - 24 chunking tests (6 scenarios × 4 languages)
+  - 22 file-path tests (7-8 scenarios × 3-4 languages)
+  - Total: 46 tests, all passing
+
+  Note: The tests require all plugins to be built first. If you need to rebuild:
+
+  make all  # Builds all plugins (Rust, Go, Python, Swift)
+
+  Or build individually:
+  make build-rust
+  make build-go
+  make build-python
+  make build-swift
+

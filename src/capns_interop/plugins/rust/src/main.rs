@@ -1,8 +1,10 @@
 use capns::{
-    Cap, CapArgumentValue, CapManifest, CapUrn, CapUrnBuilder, PeerInvoker, PluginRuntime,
-    RuntimeError, StreamEmitter,
+    ArgSource, Cap, CapArg, CapArgumentValue, CapManifest, CapOutput, CapUrnBuilder,
+    PeerInvoker, PluginRuntime, RuntimeError, StreamEmitter,
 };
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
+use std::collections::HashSet;
 use std::thread;
 use std::time::Duration;
 
@@ -144,6 +146,67 @@ fn build_manifest() -> CapManifest {
             "Get Manifest".to_string(),
             "get_manifest".to_string(),
         ),
+        Cap::new(
+            CapUrnBuilder::new()
+                .tag("op", "process_large")
+                .in_spec("media:bytes")
+                .out_spec("media:json")
+                .build()
+                .unwrap(),
+            "Process Large".to_string(),
+            "process_large".to_string(),
+        ),
+        Cap::new(
+            CapUrnBuilder::new()
+                .tag("op", "hash_incoming")
+                .in_spec("media:bytes")
+                .out_spec("media:string;textable;form=scalar")
+                .build()
+                .unwrap(),
+            "Hash Incoming".to_string(),
+            "hash_incoming".to_string(),
+        ),
+        Cap::new(
+            CapUrnBuilder::new()
+                .tag("op", "verify_binary")
+                .in_spec("media:bytes")
+                .out_spec("media:string;textable;form=scalar")
+                .build()
+                .unwrap(),
+            "Verify Binary".to_string(),
+            "verify_binary".to_string(),
+        ),
+        {
+            let mut cap = Cap::new(
+                CapUrnBuilder::new()
+                    .tag("op", "read_file_info")
+                    .in_spec("media:bytes")
+                    .out_spec("media:json")
+                    .build()
+                    .unwrap(),
+                "Read File Info".to_string(),
+                "read_file_info".to_string(),
+            );
+            cap.args = vec![CapArg {
+                media_urn: "media:file-path;textable;form=scalar".to_string(),
+                required: true,
+                sources: vec![
+                    ArgSource::Stdin {
+                        stdin: "media:bytes".to_string(),
+                    },
+                    ArgSource::Position { position: 0 },
+                ],
+                arg_description: Some("Path to file to read".to_string()),
+                default_value: None,
+                metadata: None,
+            }];
+            cap.output = Some(CapOutput {
+                media_urn: "media:json".to_string(),
+                output_description: "File size and SHA256 checksum".to_string(),
+                metadata: None,
+            });
+            cap
+        },
     ];
 
     CapManifest::new(
@@ -178,6 +241,10 @@ fn main() -> Result<(), RuntimeError> {
         handle_concurrent_stress,
     );
     runtime.register_raw(r#"cap:in=*;op=get_manifest;out=*"#, handle_get_manifest);
+    runtime.register_raw(r#"cap:in=*;op=process_large;out=*"#, handle_process_large);
+    runtime.register_raw(r#"cap:in=*;op=hash_incoming;out=*"#, handle_hash_incoming);
+    runtime.register_raw(r#"cap:in=*;op=verify_binary;out=*"#, handle_verify_binary);
+    runtime.register_raw(r#"cap:in=*;op=read_file_info;out=*"#, handle_read_file_info);
 
     runtime.run()
 }
@@ -440,4 +507,77 @@ fn handle_get_manifest(
 ) -> Result<Vec<u8>, RuntimeError> {
     let manifest = build_manifest();
     serde_json::to_vec(&manifest).map_err(|e| RuntimeError::Serialize(e.to_string()))
+}
+
+// Handler: process_large - receives large bytes, returns JSON with size and checksum
+fn handle_process_large(
+    payload: &[u8],
+    _emitter: &dyn StreamEmitter,
+    _peer: &dyn PeerInvoker,
+) -> Result<Vec<u8>, RuntimeError> {
+    let size = payload.len();
+
+    let mut hasher = Sha256::new();
+    hasher.update(payload);
+    let checksum = format!("{:x}", hasher.finalize());
+
+    let result = serde_json::json!({
+        "size": size,
+        "checksum": checksum
+    });
+
+    serde_json::to_vec(&result).map_err(|e| RuntimeError::Serialize(e.to_string()))
+}
+
+// Handler: hash_incoming - receives large bytes, returns SHA256 hash as hex string
+fn handle_hash_incoming(
+    payload: &[u8],
+    _emitter: &dyn StreamEmitter,
+    _peer: &dyn PeerInvoker,
+) -> Result<Vec<u8>, RuntimeError> {
+    let mut hasher = Sha256::new();
+    hasher.update(payload);
+    let checksum = format!("{:x}", hasher.finalize());
+
+    Ok(checksum.as_bytes().to_vec())
+}
+
+// Handler: verify_binary - verifies all 256 byte values are present
+fn handle_verify_binary(
+    payload: &[u8],
+    _emitter: &dyn StreamEmitter,
+    _peer: &dyn PeerInvoker,
+) -> Result<Vec<u8>, RuntimeError> {
+    let mut seen = HashSet::new();
+    for &byte in payload {
+        seen.insert(byte);
+    }
+
+    if seen.len() == 256 {
+        Ok(b"ok".to_vec())
+    } else {
+        let missing: Vec<u8> = (0..=255u8).filter(|b| !seen.contains(b)).collect();
+        let msg = format!("missing {} byte values: {:?}", missing.len(), &missing[..missing.len().min(10)]);
+        Ok(msg.as_bytes().to_vec())
+    }
+}
+
+// Handler: read_file_info - receives file bytes (auto-converted by runtime), returns size and checksum
+fn handle_read_file_info(
+    payload: &[u8],
+    _emitter: &dyn StreamEmitter,
+    _peer: &dyn PeerInvoker,
+) -> Result<Vec<u8>, RuntimeError> {
+    let size = payload.len();
+
+    let mut hasher = Sha256::new();
+    hasher.update(payload);
+    let checksum = format!("{:x}", hasher.finalize());
+
+    let result = serde_json::json!({
+        "size": size,
+        "checksum": checksum
+    });
+
+    serde_json::to_vec(&result).map_err(|e| RuntimeError::Serialize(e.to_string()))
 }

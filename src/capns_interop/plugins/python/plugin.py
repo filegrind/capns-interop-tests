@@ -8,20 +8,97 @@ Implements all 13 standard test capabilities for cross-language protocol testing
 import sys
 import json
 import time
+import hashlib
+import os
 from pathlib import Path
 
-# Add capns-py to path
-capns_py_path = Path(__file__).parent.parent.parent.parent.parent.parent / "capns-py" / "src"
-sys.path.insert(0, str(capns_py_path))
+# Add capns-py and tagged-urn-py to path - try multiple strategies
+def add_module_paths():
+    """Find and add capns-py and tagged-urn-py to sys.path."""
+    paths_added = set()
+
+    # Try environment variables first
+    if "CAPNS_PY_PATH" in os.environ:
+        sys.path.insert(0, os.environ["CAPNS_PY_PATH"])
+        paths_added.add("capns")
+    if "TAGGED_URN_PY_PATH" in os.environ:
+        sys.path.insert(0, os.environ["TAGGED_URN_PY_PATH"])
+        paths_added.add("tagged_urn")
+
+    if len(paths_added) == 2:
+        return  # Both found via env vars
+
+    # Try to find modules relative to this file
+    current = Path(__file__).resolve().parent
+    for _ in range(10):  # Search up to 10 levels
+        if "capns" not in paths_added:
+            capns_py = current / "capns-py" / "src"
+            if capns_py.exists():
+                sys.path.insert(0, str(capns_py))
+                paths_added.add("capns")
+
+        if "tagged_urn" not in paths_added:
+            tagged_urn_py = current / "tagged-urn-py" / "src"
+            if tagged_urn_py.exists():
+                sys.path.insert(0, str(tagged_urn_py))
+                paths_added.add("tagged_urn")
+
+        if len(paths_added) == 2:
+            return  # Both found
+
+        current = current.parent
+        if current == current.parent:  # Reached filesystem root
+            break
+
+    # Last resort: assume we're in filegrind project
+    if "capns" not in paths_added:
+        capns_path = Path.home() / "ws" / "prj" / "filegrind" / "capns-py" / "src"
+        if capns_path.exists():
+            sys.path.insert(0, str(capns_path))
+
+    if "tagged_urn" not in paths_added:
+        tagged_urn_path = Path.home() / "ws" / "prj" / "filegrind" / "tagged-urn-py" / "src"
+        if tagged_urn_path.exists():
+            sys.path.insert(0, str(tagged_urn_path))
+
+add_module_paths()
 
 from capns.plugin_runtime import PluginRuntime
 from capns.manifest import CapManifest, Cap
 from capns.cap_urn import CapUrn, CapUrnBuilder
 from capns.caller import CapArgumentValue
+from capns.cap import CapArg, CapOutput, StdinSource, PositionSource
 
 
 def build_manifest() -> CapManifest:
-    """Build manifest with all 13 test capabilities."""
+    """Build manifest with all test capabilities."""
+
+    # Build read_file_info cap with args structure
+    read_file_info_cap = Cap(
+        urn=CapUrnBuilder()
+            .tag("op", "read_file_info")
+            .in_spec("media:bytes")
+            .out_spec("media:json")
+            .build(),
+        title="Read File Info",
+        command="read_file_info",
+    )
+    read_file_info_cap.args = [
+        CapArg(
+            media_urn="media:file-path;textable;form=scalar",
+            required=True,
+            sources=[
+                StdinSource("media:bytes"),
+                PositionSource(0),
+            ],
+            arg_description="Path to file to read",
+        )
+    ]
+    read_file_info_cap.output = CapOutput(
+        media_urn="media:json",
+        output_description="File size and SHA256 checksum",
+    )
+
     caps = [
         Cap(
             urn=CapUrnBuilder()
@@ -140,6 +217,34 @@ def build_manifest() -> CapManifest:
             title="Get Manifest",
             command="get_manifest",
         ),
+        Cap(
+            urn=CapUrnBuilder()
+                .tag("op", "process_large")
+                .in_spec("media:bytes")
+                .out_spec("media:json")
+                .build(),
+            title="Process Large",
+            command="process_large",
+        ),
+        Cap(
+            urn=CapUrnBuilder()
+                .tag("op", "hash_incoming")
+                .in_spec("media:bytes")
+                .out_spec("media:string;textable;form=scalar")
+                .build(),
+            title="Hash Incoming",
+            command="hash_incoming",
+        ),
+        Cap(
+            urn=CapUrnBuilder()
+                .tag("op", "verify_binary")
+                .in_spec("media:bytes")
+                .out_spec("media:string;textable;form=scalar")
+                .build(),
+            title="Verify Binary",
+            command="verify_binary",
+        ),
+        read_file_info_cap,
     ]
 
     return CapManifest(
@@ -295,6 +400,60 @@ def handle_get_manifest(payload: bytes, emitter, peer) -> bytes:
     return json.dumps(manifest.to_dict()).encode()
 
 
+def handle_process_large(payload: bytes, emitter, peer) -> bytes:
+    """Process large - receives large bytes, returns size and checksum."""
+    size = len(payload)
+    checksum = hashlib.sha256(payload).hexdigest()
+
+    result = {
+        "size": size,
+        "checksum": checksum
+    }
+
+    return json.dumps(result).encode()
+
+
+def handle_hash_incoming(payload: bytes, emitter, peer) -> bytes:
+    """Hash incoming - receives large bytes, returns SHA256 hash."""
+    checksum = hashlib.sha256(payload).hexdigest()
+    return checksum.encode()
+
+
+def handle_verify_binary(payload: bytes, emitter, peer) -> bytes:
+    """Verify binary - verifies all 256 byte values present."""
+    # Count occurrences of each byte value
+    byte_counts = [0] * 256
+    for byte in payload:
+        byte_counts[byte] += 1
+
+    # Check all 256 values are present
+    missing = []
+    for i in range(256):
+        if byte_counts[i] == 0:
+            missing.append(i)
+
+    if missing:
+        error_msg = f"missing byte values: {missing[:10]}"  # Show first 10
+        if len(missing) > 10:
+            error_msg += f" and {len(missing) - 10} more"
+        return error_msg.encode()
+
+    return b"ok"
+
+
+def handle_read_file_info(payload: bytes, emitter, peer) -> bytes:
+    """Read file info - receives file bytes (auto-converted by runtime), returns size and checksum."""
+    size = len(payload)
+    checksum = hashlib.sha256(payload).hexdigest()
+
+    result = {
+        "size": size,
+        "checksum": checksum
+    }
+
+    return json.dumps(result).encode()
+
+
 def main():
     """Main entry point."""
     manifest = build_manifest()
@@ -314,6 +473,10 @@ def main():
     runtime.register_raw("cap:in=*;op=heartbeat_stress;out=*", handle_heartbeat_stress)
     runtime.register_raw("cap:in=*;op=concurrent_stress;out=*", handle_concurrent_stress)
     runtime.register_raw("cap:in=*;op=get_manifest;out=*", handle_get_manifest)
+    runtime.register_raw("cap:in=*;op=process_large;out=*", handle_process_large)
+    runtime.register_raw("cap:in=*;op=hash_incoming;out=*", handle_hash_incoming)
+    runtime.register_raw("cap:in=*;op=verify_binary;out=*", handle_verify_binary)
+    runtime.register_raw("cap:in=*;op=read_file_info;out=*", handle_read_file_info)
 
     runtime.run()
 

@@ -17,6 +17,12 @@ TEST_CAPS = {
     "heartbeat_stress": 'cap:in="media:number;form=scalar";op=heartbeat_stress;out="media:string;textable;form=scalar"',
     "concurrent_stress": 'cap:in="media:number;form=scalar";op=concurrent_stress;out="media:string;textable;form=scalar"',
     "get_manifest": 'cap:in="media:void";op=get_manifest;out="media:json"',
+    # Incoming chunking test capabilities (host sends large data TO plugin)
+    "process_large": 'cap:in="media:bytes";op=process_large;out="media:json"',
+    "hash_incoming": 'cap:in="media:bytes";op=hash_incoming;out="media:string;textable;form=scalar"',
+    "verify_binary": 'cap:in="media:bytes";op=verify_binary;out="media:string;textable;form=scalar"',
+    # File-path conversion test capability (runtime auto-converts file to bytes)
+    "read_file_info": 'cap:in="media:bytes";op=read_file_info;out="media:json"',
 }
 
 SUPPORTED_LANGUAGES = ["rust", "python", "swift", "go"]

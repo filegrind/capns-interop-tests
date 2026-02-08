@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -109,6 +111,56 @@ func buildManifest() *capns.CapManifest {
 				OutSpec("media:json")),
 			"Get Manifest", "get_manifest",
 		),
+		*capns.NewCap(
+			mustBuild(capns.NewCapUrnBuilder().
+				Tag("op", "process_large").
+				InSpec("media:bytes").
+				OutSpec("media:json")),
+			"Process Large", "process_large",
+		),
+		*capns.NewCap(
+			mustBuild(capns.NewCapUrnBuilder().
+				Tag("op", "hash_incoming").
+				InSpec("media:bytes").
+				OutSpec("media:string;textable;form=scalar")),
+			"Hash Incoming", "hash_incoming",
+		),
+		*capns.NewCap(
+			mustBuild(capns.NewCapUrnBuilder().
+				Tag("op", "verify_binary").
+				InSpec("media:bytes").
+				OutSpec("media:string;textable;form=scalar")),
+			"Verify Binary", "verify_binary",
+		),
+		func() capns.Cap {
+			stdin := "media:bytes"
+			position := 0
+			argDesc := "Path to file to read"
+
+			cap := capns.NewCap(
+				mustBuild(capns.NewCapUrnBuilder().
+					Tag("op", "read_file_info").
+					InSpec("media:bytes").
+					OutSpec("media:json")),
+				"Read File Info", "read_file_info",
+			)
+			cap.Args = []capns.CapArg{
+				{
+					MediaUrn: "media:file-path;textable;form=scalar",
+					Required: true,
+					Sources: []capns.ArgSource{
+						{Stdin: &stdin},
+						{Position: &position},
+					},
+					ArgDescription: argDesc,
+				},
+			}
+			cap.Output = &capns.CapOutput{
+				MediaUrn:          "media:json",
+				OutputDescription: "File size and SHA256 checksum",
+			}
+			return *cap
+		}(),
 	}
 
 	return capns.NewCapManifest(
@@ -361,6 +413,57 @@ func handleGetManifest(payload []byte, emitter capns.StreamEmitter, peer capns.P
 	return json.Marshal(manifest)
 }
 
+func handleProcessLarge(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) ([]byte, error) {
+	// Calculate size and checksum
+	size := len(payload)
+	hash := sha256.Sum256(payload)
+	checksum := hex.EncodeToString(hash[:])
+
+	result := map[string]interface{}{
+		"size":     size,
+		"checksum": checksum,
+	}
+
+	return json.Marshal(result)
+}
+
+func handleHashIncoming(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) ([]byte, error) {
+	// Calculate SHA256 hash
+	hash := sha256.Sum256(payload)
+	hexHash := hex.EncodeToString(hash[:])
+
+	return []byte(hexHash), nil
+}
+
+func handleVerifyBinary(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) ([]byte, error) {
+	// Check if all 256 byte values (0x00-0xFF) are present
+	present := make(map[byte]bool)
+	for _, b := range payload {
+		present[b] = true
+	}
+
+	if len(present) != 256 {
+		message := fmt.Sprintf("missing %d byte values", 256-len(present))
+		return []byte(message), nil
+	}
+
+	return []byte("ok"), nil
+}
+
+func handleReadFileInfo(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) ([]byte, error) {
+	// Payload is already file bytes (auto-converted by runtime from file-path)
+	size := len(payload)
+	hash := sha256.Sum256(payload)
+	checksum := hex.EncodeToString(hash[:])
+
+	result := map[string]interface{}{
+		"size":     size,
+		"checksum": checksum,
+	}
+
+	return json.Marshal(result)
+}
+
 func main() {
 	manifest := buildManifest()
 	runtime, err := capns.NewPluginRuntimeWithManifest(manifest)
@@ -382,6 +485,10 @@ func main() {
 	runtime.Register(`cap:in=*;op=heartbeat_stress;out=*`, handleHeartbeatStress)
 	runtime.Register(`cap:in=*;op=concurrent_stress;out=*`, handleConcurrentStress)
 	runtime.Register(`cap:in=*;op=get_manifest;out=*`, handleGetManifest)
+	runtime.Register(`cap:in=*;op=process_large;out=*`, handleProcessLarge)
+	runtime.Register(`cap:in=*;op=hash_incoming;out=*`, handleHashIncoming)
+	runtime.Register(`cap:in=*;op=verify_binary;out=*`, handleVerifyBinary)
+	runtime.Register(`cap:in=*;op=read_file_info;out=*`, handleReadFileInfo)
 
 	if err := runtime.Run(); err != nil {
 		panic(fmt.Sprintf("plugin runtime error: %v", err))
