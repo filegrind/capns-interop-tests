@@ -2,7 +2,7 @@ module github.com/filegrind/capns-interop-plugin-go
 
 go 1.21
 
-require github.com/filegrind/cap-sdk-go v0.0.0
+require github.com/filegrind/capns-go v0.0.0
 
 require (
 	github.com/filegrind/tagged-urn-go v0.0.0 // indirect
@@ -14,6 +14,6 @@ require (
 	github.com/xeipuuv/gojsonschema v1.2.0 // indirect
 )
 
-replace github.com/filegrind/cap-sdk-go => ../../../../../capns-go
+replace github.com/filegrind/capns-go => ../../../../../capns-go
 
 replace github.com/filegrind/tagged-urn-go => ../../../../../tagged-urn-go

@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	capns "github.com/filegrind/cap-sdk-go"
+	capns "github.com/filegrind/capns-go"
 	cborlib "github.com/fxamacker/cbor/v2"
 )
 

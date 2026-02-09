@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	capns "github.com/filegrind/cap-sdk-go"
+	capns "github.com/filegrind/capns-go"
 )
 
 func buildManifest() *capns.CapManifest {
