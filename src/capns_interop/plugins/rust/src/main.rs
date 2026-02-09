@@ -201,9 +201,12 @@ fn build_manifest() -> CapManifest {
             cap.args = vec![CapArg {
                 media_urn: "media:file-path;textable;form=scalar".to_string(),
                 required: true,
-                sources: vec![ArgSource::Stdin {
-                    stdin: "media:bytes".to_string(),
-                }],
+                sources: vec![
+                    ArgSource::Stdin {
+                        stdin: "media:bytes".to_string(),
+                    },
+                    ArgSource::Position { position: 0 },
+                ],
                 arg_description: Some("Path to file".to_string()),
                 default_value: None,
                 metadata: None,
@@ -633,7 +636,7 @@ fn handle_read_file_info(
 
     emitter.emit(serde_json::json!({
         "size": file_content.len(),
-        "sha256": hash_hex
+        "checksum": hash_hex
     }))?;
     Ok(())
 }

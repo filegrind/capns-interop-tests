@@ -15,6 +15,8 @@ class PluginProcess:
     def __init__(self, binary_path: Path):
         self.binary_path = binary_path
         self.process: Optional[asyncio.subprocess.Process] = None
+        self._stderr_task: Optional[asyncio.Task] = None
+        self._stderr_buffer = bytearray()
 
     async def start(self) -> Tuple[asyncio.StreamWriter, asyncio.StreamReader]:
         """Spawn plugin and return stdin/stdout streams."""
@@ -38,30 +40,33 @@ class PluginProcess:
                 raise RuntimeError(f"Failed to create stdin/stdout pipes. Stderr: {stderr_data.decode()}")
             raise RuntimeError("Failed to create stdin/stdout pipes")
 
+        # Continuously drain stderr to prevent pipe buffer deadlock.
+        # Plugin runtimes write debug logs to stderr; if nobody reads,
+        # the pipe buffer fills (~64KB on macOS) and blocks the plugin.
+        self._stderr_task = asyncio.create_task(self._drain_stderr())
+
         return self.process.stdin, self.process.stdout
 
-    async def get_stderr(self) -> str:
-        """Read stderr output from process (non-blocking)."""
+    async def _drain_stderr(self):
+        """Continuously read stderr to prevent pipe buffer blocking."""
         if not self.process or not self.process.stderr:
-            return ""
-
+            return
         try:
-            # Try to read available stderr without blocking
-            data = b""
             while True:
-                try:
-                    chunk = await asyncio.wait_for(
-                        self.process.stderr.read(1024),
-                        timeout=0.01
-                    )
-                    if not chunk:
-                        break
-                    data += chunk
-                except asyncio.TimeoutError:
+                chunk = await self.process.stderr.read(8192)
+                if not chunk:
                     break
-            return data.decode('utf-8', errors='replace')
+                self._stderr_buffer.extend(chunk)
         except Exception:
-            return ""
+            pass
+
+    async def get_stderr(self) -> str:
+        """Return accumulated stderr output."""
+        return self._stderr_buffer.decode('utf-8', errors='replace')
+
+    def _cancel_stderr_task(self):
+        if self._stderr_task and not self._stderr_task.done():
+            self._stderr_task.cancel()
 
     async def stop(self, timeout: float = 5.0):
         """Gracefully stop plugin (close stdin, wait for exit)."""
@@ -74,23 +79,25 @@ class PluginProcess:
             try:
                 await self.process.stdin.wait_closed()
             except Exception:
-                pass  # Already closed
+                pass
 
         try:
             await asyncio.wait_for(self.process.wait(), timeout=timeout)
         except asyncio.TimeoutError:
-            # Force kill if doesn't exit
             self.process.kill()
             await self.process.wait()
 
+        self._cancel_stderr_task()
+
     async def kill(self):
         """Force kill immediately."""
+        self._cancel_stderr_task()
         if self.process:
             try:
                 self.process.kill()
                 await self.process.wait()
             except Exception:
-                pass  # Already dead
+                pass
 
     def is_running(self) -> bool:
         """Check if process is still running."""
