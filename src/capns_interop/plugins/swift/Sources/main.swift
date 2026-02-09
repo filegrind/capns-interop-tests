@@ -142,7 +142,7 @@ func handleStreamChunks(payload: Data, emitter: CborStreamEmitter, peer: CborPee
 
     for i in 0..<count {
         let chunk = "chunk-\(i)".data(using: .utf8)!
-        emitter.emit(chunk: chunk)
+        try emitter.emit(value: "chunk-\(i)")
     }
 
     return "done".data(using: .utf8)!

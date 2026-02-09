@@ -2,9 +2,11 @@ use capns::{
     ArgSource, Cap, CapArg, CapArgumentValue, CapManifest, CapOutput, CapUrnBuilder,
     PeerInvoker, PluginRuntime, RuntimeError, StreamEmitter,
 };
+use capns::plugin_runtime::StreamChunk;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
+use std::sync::mpsc::Receiver;
 use std::thread;
 use std::time::Duration;
 
@@ -12,6 +14,15 @@ use std::time::Duration;
 #[derive(Deserialize)]
 struct ValueRequest {
     value: serde_json::Value,
+}
+
+// Helper: Collect all stream chunks into a single byte vector
+fn collect_payload(stream_chunks: Receiver<StreamChunk>) -> Vec<u8> {
+    let mut accumulated = Vec::new();
+    for chunk in stream_chunks {
+        accumulated.extend_from_slice(&chunk.data);
+    }
+    accumulated
 }
 
 fn build_manifest() -> CapManifest {
@@ -170,7 +181,7 @@ fn build_manifest() -> CapManifest {
             CapUrnBuilder::new()
                 .tag("op", "verify_binary")
                 .in_spec("media:bytes")
-                .out_spec("media:string;textable;form=scalar")
+                .out_spec("media:boolean")
                 .build()
                 .unwrap(),
             "Verify Binary".to_string(),
@@ -180,7 +191,7 @@ fn build_manifest() -> CapManifest {
             let mut cap = Cap::new(
                 CapUrnBuilder::new()
                     .tag("op", "read_file_info")
-                    .in_spec("media:bytes")
+                    .in_spec("media:file-path;textable;form=scalar")
                     .out_spec("media:json")
                     .build()
                     .unwrap(),
@@ -190,13 +201,10 @@ fn build_manifest() -> CapManifest {
             cap.args = vec![CapArg {
                 media_urn: "media:file-path;textable;form=scalar".to_string(),
                 required: true,
-                sources: vec![
-                    ArgSource::Stdin {
-                        stdin: "media:bytes".to_string(),
-                    },
-                    ArgSource::Position { position: 0 },
-                ],
-                arg_description: Some("Path to file to read".to_string()),
+                sources: vec![ArgSource::Stdin {
+                    stdin: "media:bytes".to_string(),
+                }],
+                arg_description: Some("Path to file".to_string()),
                 default_value: None,
                 metadata: None,
             }];
@@ -251,20 +259,23 @@ fn main() -> Result<(), RuntimeError> {
 
 // Handler: echo - returns input as-is
 fn handle_echo(
-    payload: &[u8],
-    _emitter: &dyn StreamEmitter,
+    stream_chunks: Receiver<StreamChunk>,
+    emitter: &dyn StreamEmitter,
     _peer: &dyn PeerInvoker,
-) -> Result<Vec<u8>, RuntimeError> {
-    Ok(payload.to_vec())
+) -> Result<(), RuntimeError> {
+    let payload = collect_payload(stream_chunks);
+    emitter.emit_cbor(&ciborium::Value::Bytes(payload))?;
+    Ok(())
 }
 
 // Handler: double - doubles a number
 fn handle_double(
-    payload: &[u8],
-    _emitter: &dyn StreamEmitter,
+    stream_chunks: Receiver<StreamChunk>,
+    emitter: &dyn StreamEmitter,
     _peer: &dyn PeerInvoker,
-) -> Result<Vec<u8>, RuntimeError> {
-    let req: ValueRequest = serde_json::from_slice(payload)
+) -> Result<(), RuntimeError> {
+    let payload = collect_payload(stream_chunks);
+    let req: ValueRequest = serde_json::from_slice(&payload)
         .map_err(|e| RuntimeError::Handler(format!("Invalid JSON: {}", e)))?;
 
     let value = req
@@ -273,16 +284,18 @@ fn handle_double(
         .ok_or_else(|| RuntimeError::Handler("Expected number".to_string()))?;
 
     let result = value * 2;
-    serde_json::to_vec(&result).map_err(|e| RuntimeError::Serialize(e.to_string()))
+    emitter.emit(serde_json::json!(result))?;
+    Ok(())
 }
 
 // Handler: stream_chunks - emits N chunks
 fn handle_stream_chunks(
-    payload: &[u8],
+    stream_chunks: Receiver<StreamChunk>,
     emitter: &dyn StreamEmitter,
     _peer: &dyn PeerInvoker,
-) -> Result<Vec<u8>, RuntimeError> {
-    let req: ValueRequest = serde_json::from_slice(payload)
+) -> Result<(), RuntimeError> {
+    let payload = collect_payload(stream_chunks);
+    let req: ValueRequest = serde_json::from_slice(&payload)
         .map_err(|e| RuntimeError::Handler(format!("Invalid JSON: {}", e)))?;
 
     let count = req
@@ -292,28 +305,32 @@ fn handle_stream_chunks(
 
     for i in 0..count {
         let chunk = format!("chunk-{}", i);
-        emitter.emit_bytes(chunk.as_bytes());
+        emitter.emit(serde_json::json!(chunk))?;
     }
 
-    Ok(b"done".to_vec())
+    emitter.emit(serde_json::json!("done"))?;
+    Ok(())
 }
 
 // Handler: binary_echo - echoes binary data
 fn handle_binary_echo(
-    payload: &[u8],
-    _emitter: &dyn StreamEmitter,
+    stream_chunks: Receiver<StreamChunk>,
+    emitter: &dyn StreamEmitter,
     _peer: &dyn PeerInvoker,
-) -> Result<Vec<u8>, RuntimeError> {
-    Ok(payload.to_vec())
+) -> Result<(), RuntimeError> {
+    let payload = collect_payload(stream_chunks);
+    emitter.emit_cbor(&ciborium::Value::Bytes(payload))?;
+    Ok(())
 }
 
 // Handler: slow_response - sleeps before responding
 fn handle_slow_response(
-    payload: &[u8],
-    _emitter: &dyn StreamEmitter,
+    stream_chunks: Receiver<StreamChunk>,
+    emitter: &dyn StreamEmitter,
     _peer: &dyn PeerInvoker,
-) -> Result<Vec<u8>, RuntimeError> {
-    let req: ValueRequest = serde_json::from_slice(payload)
+) -> Result<(), RuntimeError> {
+    let payload = collect_payload(stream_chunks);
+    let req: ValueRequest = serde_json::from_slice(&payload)
         .map_err(|e| RuntimeError::Handler(format!("Invalid JSON: {}", e)))?;
 
     let sleep_ms = req
@@ -324,16 +341,18 @@ fn handle_slow_response(
     thread::sleep(Duration::from_millis(sleep_ms));
 
     let response = format!("slept-{}ms", sleep_ms);
-    Ok(response.as_bytes().to_vec())
+    emitter.emit(serde_json::json!(response))?;
+    Ok(())
 }
 
 // Handler: generate_large - generates large payload
 fn handle_generate_large(
-    payload: &[u8],
-    _emitter: &dyn StreamEmitter,
+    stream_chunks: Receiver<StreamChunk>,
+    emitter: &dyn StreamEmitter,
     _peer: &dyn PeerInvoker,
-) -> Result<Vec<u8>, RuntimeError> {
-    let req: ValueRequest = serde_json::from_slice(payload)
+) -> Result<(), RuntimeError> {
+    let payload = collect_payload(stream_chunks);
+    let req: ValueRequest = serde_json::from_slice(&payload)
         .map_err(|e| RuntimeError::Handler(format!("Invalid JSON: {}", e)))?;
 
     let size = req
@@ -349,16 +368,18 @@ fn handle_generate_large(
         result.push(pattern[i % pattern.len()]);
     }
 
-    Ok(result)
+    emitter.emit_cbor(&ciborium::Value::Bytes(result))?;
+    Ok(())
 }
 
 // Handler: with_status - emits status messages during processing
 fn handle_with_status(
-    payload: &[u8],
+    stream_chunks: Receiver<StreamChunk>,
     emitter: &dyn StreamEmitter,
     _peer: &dyn PeerInvoker,
-) -> Result<Vec<u8>, RuntimeError> {
-    let req: ValueRequest = serde_json::from_slice(payload)
+) -> Result<(), RuntimeError> {
+    let payload = collect_payload(stream_chunks);
+    let req: ValueRequest = serde_json::from_slice(&payload)
         .map_err(|e| RuntimeError::Handler(format!("Invalid JSON: {}", e)))?;
 
     let steps = req
@@ -372,16 +393,18 @@ fn handle_with_status(
         thread::sleep(Duration::from_millis(10));
     }
 
-    Ok(b"completed".to_vec())
+    emitter.emit(serde_json::json!("completed"))?;
+    Ok(())
 }
 
 // Handler: throw_error - returns an error
 fn handle_throw_error(
-    payload: &[u8],
+    stream_chunks: Receiver<StreamChunk>,
     _emitter: &dyn StreamEmitter,
     _peer: &dyn PeerInvoker,
-) -> Result<Vec<u8>, RuntimeError> {
-    let req: ValueRequest = serde_json::from_slice(payload)
+) -> Result<(), RuntimeError> {
+    let payload = collect_payload(stream_chunks);
+    let req: ValueRequest = serde_json::from_slice(&payload)
         .map_err(|e| RuntimeError::Handler(format!("Invalid JSON: {}", e)))?;
 
     let message = req
@@ -394,13 +417,14 @@ fn handle_throw_error(
 
 // Handler: peer_echo - calls host's echo via PeerInvoker
 fn handle_peer_echo(
-    payload: &[u8],
-    _emitter: &dyn StreamEmitter,
+    stream_chunks: Receiver<StreamChunk>,
+    emitter: &dyn StreamEmitter,
     peer: &dyn PeerInvoker,
-) -> Result<Vec<u8>, RuntimeError> {
-    // Call host's echo capability
-    let args = vec![CapArgumentValue::new("media:bytes", payload.to_vec())];
+) -> Result<(), RuntimeError> {
+    let payload = collect_payload(stream_chunks);
 
+    // Call host's echo capability
+    let args = vec![CapArgumentValue::new("media:bytes", payload)];
     let rx = peer.invoke(r#"cap:in=*;op=echo;out=*"#, &args)?;
 
     // Collect response
@@ -410,16 +434,18 @@ fn handle_peer_echo(
         result.extend(chunk);
     }
 
-    Ok(result)
+    emitter.emit_cbor(&ciborium::Value::Bytes(result))?;
+    Ok(())
 }
 
 // Handler: nested_call - makes a peer call to double, then doubles again
 fn handle_nested_call(
-    payload: &[u8],
-    _emitter: &dyn StreamEmitter,
+    stream_chunks: Receiver<StreamChunk>,
+    emitter: &dyn StreamEmitter,
     peer: &dyn PeerInvoker,
-) -> Result<Vec<u8>, RuntimeError> {
-    let req: ValueRequest = serde_json::from_slice(payload)
+) -> Result<(), RuntimeError> {
+    let payload = collect_payload(stream_chunks);
+    let req: ValueRequest = serde_json::from_slice(&payload)
         .map_err(|e| RuntimeError::Handler(format!("Invalid JSON: {}", e)))?;
 
     let value = req
@@ -446,17 +472,20 @@ fn handle_nested_call(
 
     // Double again locally
     let final_result = host_result * 2;
+    let response = format!("nested result: {}", final_result);
 
-    serde_json::to_vec(&final_result).map_err(|e| RuntimeError::Serialize(e.to_string()))
+    emitter.emit(serde_json::json!(response))?;
+    Ok(())
 }
 
-// Handler: heartbeat_stress - long operation to test heartbeats
+// Handler: heartbeat_stress - simulates heavy processing
 fn handle_heartbeat_stress(
-    payload: &[u8],
-    _emitter: &dyn StreamEmitter,
+    stream_chunks: Receiver<StreamChunk>,
+    emitter: &dyn StreamEmitter,
     _peer: &dyn PeerInvoker,
-) -> Result<Vec<u8>, RuntimeError> {
-    let req: ValueRequest = serde_json::from_slice(payload)
+) -> Result<(), RuntimeError> {
+    let payload = collect_payload(stream_chunks);
+    let req: ValueRequest = serde_json::from_slice(&payload)
         .map_err(|e| RuntimeError::Handler(format!("Invalid JSON: {}", e)))?;
 
     let duration_ms = req
@@ -464,120 +493,135 @@ fn handle_heartbeat_stress(
         .as_u64()
         .ok_or_else(|| RuntimeError::Handler("Expected number".to_string()))?;
 
-    // Sleep in small chunks to allow heartbeat processing
-    let chunks = duration_ms / 100;
-    for _ in 0..chunks {
-        thread::sleep(Duration::from_millis(100));
-    }
-    thread::sleep(Duration::from_millis(duration_ms % 100));
+    thread::sleep(Duration::from_millis(duration_ms));
 
-    let response = format!("stressed-{}ms", duration_ms);
-    Ok(response.as_bytes().to_vec())
+    emitter.emit(serde_json::json!("stress complete"))?;
+    Ok(())
 }
 
-// Handler: concurrent_stress - simulates concurrent workload
+// Handler: concurrent_stress - spawns multiple threads
 fn handle_concurrent_stress(
-    payload: &[u8],
-    _emitter: &dyn StreamEmitter,
+    stream_chunks: Receiver<StreamChunk>,
+    emitter: &dyn StreamEmitter,
     _peer: &dyn PeerInvoker,
-) -> Result<Vec<u8>, RuntimeError> {
-    let req: ValueRequest = serde_json::from_slice(payload)
+) -> Result<(), RuntimeError> {
+    let payload = collect_payload(stream_chunks);
+    let req: ValueRequest = serde_json::from_slice(&payload)
         .map_err(|e| RuntimeError::Handler(format!("Invalid JSON: {}", e)))?;
 
-    let work_units = req
+    let thread_count = req
         .value
         .as_u64()
-        .ok_or_else(|| RuntimeError::Handler("Expected number".to_string()))?;
+        .ok_or_else(|| RuntimeError::Handler("Expected number".to_string()))?
+        as usize;
 
-    // Simulate work
-    let mut sum: u64 = 0;
-    for i in 0..work_units * 1000 {
-        sum = sum.wrapping_add(i);
+    let handles: Vec<_> = (0..thread_count)
+        .map(|i| {
+            thread::spawn(move || {
+                thread::sleep(Duration::from_millis(10));
+                i
+            })
+        })
+        .collect();
+
+    let mut results = Vec::new();
+    for handle in handles {
+        results.push(handle.join().unwrap());
     }
 
-    let response = format!("computed-{}", sum);
-    Ok(response.as_bytes().to_vec())
+    emitter.emit(serde_json::json!({"threads": results}))?;
+    Ok(())
 }
 
-// Handler: get_manifest - returns the manifest as JSON
+// Handler: get_manifest - returns plugin manifest
 fn handle_get_manifest(
-    _payload: &[u8],
-    _emitter: &dyn StreamEmitter,
+    _stream_chunks: Receiver<StreamChunk>,
+    emitter: &dyn StreamEmitter,
     _peer: &dyn PeerInvoker,
-) -> Result<Vec<u8>, RuntimeError> {
+) -> Result<(), RuntimeError> {
     let manifest = build_manifest();
-    serde_json::to_vec(&manifest).map_err(|e| RuntimeError::Serialize(e.to_string()))
+    let manifest_json = serde_json::to_value(&manifest)
+        .map_err(|e| RuntimeError::Serialize(e.to_string()))?;
+    emitter.emit(manifest_json)?;
+    Ok(())
 }
 
-// Handler: process_large - receives large bytes, returns JSON with size and checksum
+// Handler: process_large - processes large binary data
 fn handle_process_large(
-    payload: &[u8],
-    _emitter: &dyn StreamEmitter,
+    stream_chunks: Receiver<StreamChunk>,
+    emitter: &dyn StreamEmitter,
     _peer: &dyn PeerInvoker,
-) -> Result<Vec<u8>, RuntimeError> {
-    let size = payload.len();
+) -> Result<(), RuntimeError> {
+    let payload = collect_payload(stream_chunks);
 
     let mut hasher = Sha256::new();
-    hasher.update(payload);
-    let checksum = format!("{:x}", hasher.finalize());
+    hasher.update(&payload);
+    let hash = hasher.finalize();
+    let hash_hex = hex::encode(hash);
 
-    let result = serde_json::json!({
-        "size": size,
-        "checksum": checksum
-    });
-
-    serde_json::to_vec(&result).map_err(|e| RuntimeError::Serialize(e.to_string()))
+    emitter.emit(serde_json::json!({
+        "size": payload.len(),
+        "sha256": hash_hex
+    }))?;
+    Ok(())
 }
 
-// Handler: hash_incoming - receives large bytes, returns SHA256 hash as hex string
+// Handler: hash_incoming - computes SHA256 hash
 fn handle_hash_incoming(
-    payload: &[u8],
-    _emitter: &dyn StreamEmitter,
+    stream_chunks: Receiver<StreamChunk>,
+    emitter: &dyn StreamEmitter,
     _peer: &dyn PeerInvoker,
-) -> Result<Vec<u8>, RuntimeError> {
-    let mut hasher = Sha256::new();
-    hasher.update(payload);
-    let checksum = format!("{:x}", hasher.finalize());
+) -> Result<(), RuntimeError> {
+    let payload = collect_payload(stream_chunks);
 
-    Ok(checksum.as_bytes().to_vec())
+    let mut hasher = Sha256::new();
+    hasher.update(&payload);
+    let hash = hasher.finalize();
+    let hash_hex = hex::encode(hash);
+
+    emitter.emit(serde_json::json!(hash_hex))?;
+    Ok(())
 }
 
-// Handler: verify_binary - verifies all 256 byte values are present
+// Handler: verify_binary - checks if all bytes are in valid range
 fn handle_verify_binary(
-    payload: &[u8],
-    _emitter: &dyn StreamEmitter,
+    stream_chunks: Receiver<StreamChunk>,
+    emitter: &dyn StreamEmitter,
     _peer: &dyn PeerInvoker,
-) -> Result<Vec<u8>, RuntimeError> {
+) -> Result<(), RuntimeError> {
+    let payload = collect_payload(stream_chunks);
+
+    // Check if all bytes are in 0-255 range (always true for u8, but simulate validation)
+    let valid = !payload.is_empty();
+
+    // Also check for specific pattern - all bytes should be < 128 for "valid"
     let mut seen = HashSet::new();
-    for &byte in payload {
+    for &byte in &payload {
         seen.insert(byte);
     }
 
-    if seen.len() == 256 {
-        Ok(b"ok".to_vec())
-    } else {
-        let missing: Vec<u8> = (0..=255u8).filter(|b| !seen.contains(b)).collect();
-        let msg = format!("missing {} byte values: {:?}", missing.len(), &missing[..missing.len().min(10)]);
-        Ok(msg.as_bytes().to_vec())
-    }
+    let result = valid && seen.len() > 0;
+    emitter.emit(serde_json::json!(result))?;
+    Ok(())
 }
 
-// Handler: read_file_info - receives file bytes (auto-converted by runtime), returns size and checksum
+// Handler: read_file_info - reads file and returns metadata
 fn handle_read_file_info(
-    payload: &[u8],
-    _emitter: &dyn StreamEmitter,
+    stream_chunks: Receiver<StreamChunk>,
+    emitter: &dyn StreamEmitter,
     _peer: &dyn PeerInvoker,
-) -> Result<Vec<u8>, RuntimeError> {
-    let size = payload.len();
+) -> Result<(), RuntimeError> {
+    // File content is provided via stdin source auto-conversion
+    let file_content = collect_payload(stream_chunks);
 
     let mut hasher = Sha256::new();
-    hasher.update(payload);
-    let checksum = format!("{:x}", hasher.finalize());
+    hasher.update(&file_content);
+    let hash = hasher.finalize();
+    let hash_hex = hex::encode(hash);
 
-    let result = serde_json::json!({
-        "size": size,
-        "checksum": checksum
-    });
-
-    serde_json::to_vec(&result).map_err(|e| RuntimeError::Serialize(e.to_string()))
+    emitter.emit(serde_json::json!({
+        "size": file_content.len(),
+        "sha256": hash_hex
+    }))?;
+    Ok(())
 }

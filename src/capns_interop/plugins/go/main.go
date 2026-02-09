@@ -184,34 +184,40 @@ func parseValueRequest(payload []byte) (valueRequest, error) {
 	return req, nil
 }
 
-func handleEcho(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) ([]byte, error) {
-	return payload, nil
+func handleEcho(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
+	emitter.Emit(payload)
+	return nil
 }
 
-func handleDouble(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) ([]byte, error) {
+func handleDouble(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
 	req, err := parseValueRequest(payload)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	var value uint64
 	if err := json.Unmarshal(req.Value, &value); err != nil {
-		return nil, fmt.Errorf("expected number: %w", err)
+		return fmt.Errorf("expected number: %w", err)
 	}
 
 	result := value * 2
-	return json.Marshal(result)
+	resultBytes, err := json.Marshal(result)
+	if err != nil {
+		return err
+	}
+	emitter.Emit(resultBytes)
+	return nil
 }
 
-func handleStreamChunks(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) ([]byte, error) {
+func handleStreamChunks(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
 	req, err := parseValueRequest(payload)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	var count uint64
 	if err := json.Unmarshal(req.Value, &count); err != nil {
-		return nil, fmt.Errorf("expected number: %w", err)
+		return fmt.Errorf("expected number: %w", err)
 	}
 
 	for i := uint64(0); i < count; i++ {
@@ -219,39 +225,42 @@ func handleStreamChunks(payload []byte, emitter capns.StreamEmitter, peer capns.
 		emitter.Emit([]byte(chunk))
 	}
 
-	return []byte("done"), nil
+	emitter.Emit([]byte("done"))
+	return nil
 }
 
-func handleBinaryEcho(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) ([]byte, error) {
-	return payload, nil
+func handleBinaryEcho(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
+	emitter.Emit(payload)
+	return nil
 }
 
-func handleSlowResponse(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) ([]byte, error) {
+func handleSlowResponse(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
 	req, err := parseValueRequest(payload)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	var sleepMs uint64
 	if err := json.Unmarshal(req.Value, &sleepMs); err != nil {
-		return nil, fmt.Errorf("expected number: %w", err)
+		return fmt.Errorf("expected number: %w", err)
 	}
 
 	time.Sleep(time.Duration(sleepMs) * time.Millisecond)
 
 	response := fmt.Sprintf("slept-%dms", sleepMs)
-	return []byte(response), nil
+	emitter.Emit([]byte(response))
+	return nil
 }
 
-func handleGenerateLarge(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) ([]byte, error) {
+func handleGenerateLarge(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
 	req, err := parseValueRequest(payload)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	var size uint64
 	if err := json.Unmarshal(req.Value, &size); err != nil {
-		return nil, fmt.Errorf("expected number: %w", err)
+		return fmt.Errorf("expected number: %w", err)
 	}
 
 	pattern := []byte("ABCDEFGH")
@@ -260,18 +269,19 @@ func handleGenerateLarge(payload []byte, emitter capns.StreamEmitter, peer capns
 		result[i] = pattern[i%uint64(len(pattern))]
 	}
 
-	return result, nil
+	emitter.Emit(result)
+	return nil
 }
 
-func handleWithStatus(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) ([]byte, error) {
+func handleWithStatus(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
 	req, err := parseValueRequest(payload)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	var steps uint64
 	if err := json.Unmarshal(req.Value, &steps); err != nil {
-		return nil, fmt.Errorf("expected number: %w", err)
+		return fmt.Errorf("expected number: %w", err)
 	}
 
 	for i := uint64(0); i < steps; i++ {
@@ -280,24 +290,25 @@ func handleWithStatus(payload []byte, emitter capns.StreamEmitter, peer capns.Pe
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	return []byte("completed"), nil
+	emitter.Emit([]byte("completed"))
+	return nil
 }
 
-func handleThrowError(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) ([]byte, error) {
+func handleThrowError(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
 	req, err := parseValueRequest(payload)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	var message string
 	if err := json.Unmarshal(req.Value, &message); err != nil {
-		return nil, fmt.Errorf("expected string: %w", err)
+		return fmt.Errorf("expected string: %w", err)
 	}
 
-	return nil, fmt.Errorf("%s", message)
+	return fmt.Errorf("%s", message)
 }
 
-func handlePeerEcho(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) ([]byte, error) {
+func handlePeerEcho(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
 	// Call host's echo capability
 	args := []capns.CapArgumentValue{
 		capns.NewCapArgumentValue("media:bytes", payload),
@@ -305,36 +316,37 @@ func handlePeerEcho(payload []byte, emitter capns.StreamEmitter, peer capns.Peer
 
 	rx, err := peer.Invoke(`cap:in=*;op=echo;out=*`, args)
 	if err != nil {
-		return nil, fmt.Errorf("peer invoke failed: %w", err)
+		return fmt.Errorf("peer invoke failed: %w", err)
 	}
 
 	// Collect response
 	var result []byte
 	for chunk := range rx {
 		if chunk.Error != nil {
-			return nil, chunk.Error
+			return chunk.Error
 		}
 		result = append(result, chunk.Data...)
 	}
 
-	return result, nil
+	emitter.Emit(result)
+	return nil
 }
 
-func handleNestedCall(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) ([]byte, error) {
+func handleNestedCall(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
 	req, err := parseValueRequest(payload)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	var value uint64
 	if err := json.Unmarshal(req.Value, &value); err != nil {
-		return nil, fmt.Errorf("expected number: %w", err)
+		return fmt.Errorf("expected number: %w", err)
 	}
 
 	// Call host's double capability
 	input, err := json.Marshal(map[string]uint64{"value": value})
 	if err != nil {
-		return nil, err
+		return err
 	}
 	args := []capns.CapArgumentValue{
 		capns.NewCapArgumentValue("media:json", input),
@@ -342,38 +354,44 @@ func handleNestedCall(payload []byte, emitter capns.StreamEmitter, peer capns.Pe
 
 	rx, err := peer.Invoke(`cap:in=*;op=double;out=*`, args)
 	if err != nil {
-		return nil, fmt.Errorf("peer invoke failed: %w", err)
+		return fmt.Errorf("peer invoke failed: %w", err)
 	}
 
 	// Collect response
 	var resultBytes []byte
 	for chunk := range rx {
 		if chunk.Error != nil {
-			return nil, chunk.Error
+			return chunk.Error
 		}
 		resultBytes = append(resultBytes, chunk.Data...)
 	}
 
 	var hostResult uint64
 	if err := json.Unmarshal(resultBytes, &hostResult); err != nil {
-		return nil, fmt.Errorf("failed to parse host result: %w", err)
+		return fmt.Errorf("failed to parse host result: %w", err)
 	}
 
 	// Double again locally
 	finalResult := hostResult * 2
 
-	return json.Marshal(finalResult)
+	finalBytes, err := json.Marshal(finalResult)
+	if err != nil {
+		return err
+	}
+
+	emitter.Emit(finalBytes)
+	return nil
 }
 
-func handleHeartbeatStress(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) ([]byte, error) {
+func handleHeartbeatStress(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
 	req, err := parseValueRequest(payload)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	var durationMs uint64
 	if err := json.Unmarshal(req.Value, &durationMs); err != nil {
-		return nil, fmt.Errorf("expected number: %w", err)
+		return fmt.Errorf("expected number: %w", err)
 	}
 
 	// Sleep in small chunks to allow heartbeat processing
@@ -384,18 +402,19 @@ func handleHeartbeatStress(payload []byte, emitter capns.StreamEmitter, peer cap
 	time.Sleep(time.Duration(durationMs%100) * time.Millisecond)
 
 	response := fmt.Sprintf("stressed-%dms", durationMs)
-	return []byte(response), nil
+	emitter.Emit([]byte(response))
+	return nil
 }
 
-func handleConcurrentStress(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) ([]byte, error) {
+func handleConcurrentStress(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
 	req, err := parseValueRequest(payload)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	var workUnits uint64
 	if err := json.Unmarshal(req.Value, &workUnits); err != nil {
-		return nil, fmt.Errorf("expected number: %w", err)
+		return fmt.Errorf("expected number: %w", err)
 	}
 
 	// Simulate work
@@ -405,15 +424,22 @@ func handleConcurrentStress(payload []byte, emitter capns.StreamEmitter, peer ca
 	}
 
 	response := fmt.Sprintf("computed-%d", sum)
-	return []byte(response), nil
+	emitter.Emit([]byte(response))
+	return nil
 }
 
-func handleGetManifest(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) ([]byte, error) {
+func handleGetManifest(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
 	manifest := buildManifest()
-	return json.Marshal(manifest)
+	manifestBytes, err := json.Marshal(manifest)
+	if err != nil {
+		return err
+	}
+
+	emitter.Emit(manifestBytes)
+	return nil
 }
 
-func handleProcessLarge(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) ([]byte, error) {
+func handleProcessLarge(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
 	// Calculate size and checksum
 	size := len(payload)
 	hash := sha256.Sum256(payload)
@@ -424,33 +450,43 @@ func handleProcessLarge(payload []byte, emitter capns.StreamEmitter, peer capns.
 		"checksum": checksum,
 	}
 
-	return json.Marshal(result)
+	resultBytes, err := json.Marshal(result)
+	if err != nil {
+		return err
+	}
+
+	emitter.Emit(resultBytes)
+	return nil
 }
 
-func handleHashIncoming(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) ([]byte, error) {
+func handleHashIncoming(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
 	// Calculate SHA256 hash
 	hash := sha256.Sum256(payload)
 	hexHash := hex.EncodeToString(hash[:])
 
-	return []byte(hexHash), nil
+	emitter.Emit([]byte(hexHash))
+	return nil
 }
 
-func handleVerifyBinary(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) ([]byte, error) {
+func handleVerifyBinary(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
 	// Check if all 256 byte values (0x00-0xFF) are present
 	present := make(map[byte]bool)
 	for _, b := range payload {
 		present[b] = true
 	}
 
+	var message string
 	if len(present) != 256 {
-		message := fmt.Sprintf("missing %d byte values", 256-len(present))
-		return []byte(message), nil
+		message = fmt.Sprintf("missing %d byte values", 256-len(present))
+	} else {
+		message = "ok"
 	}
 
-	return []byte("ok"), nil
+	emitter.Emit([]byte(message))
+	return nil
 }
 
-func handleReadFileInfo(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) ([]byte, error) {
+func handleReadFileInfo(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
 	// Payload is already file bytes (auto-converted by runtime from file-path)
 	size := len(payload)
 	hash := sha256.Sum256(payload)
@@ -461,7 +497,13 @@ func handleReadFileInfo(payload []byte, emitter capns.StreamEmitter, peer capns.
 		"checksum": checksum,
 	}
 
-	return json.Marshal(result)
+	resultBytes, err := json.Marshal(result)
+	if err != nil {
+		return err
+	}
+
+	emitter.Emit(resultBytes)
+	return nil
 }
 
 func main() {
