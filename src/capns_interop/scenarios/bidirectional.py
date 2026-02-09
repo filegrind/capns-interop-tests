@@ -3,6 +3,7 @@
 import json
 from .. import TEST_CAPS
 from .base import Scenario, ScenarioResult
+from capns.caller import CapArgumentValue
 
 
 class PeerEchoScenario(Scenario):
@@ -22,7 +23,7 @@ class PeerEchoScenario(Scenario):
 
             # Plugin will call back to host's echo with the raw bytes
             # peer_echo handler sends the input as-is to host's echo
-            response = await host.call(TEST_CAPS["peer_echo"], test_input, "media:bytes")
+            response = await host.call_with_arguments(TEST_CAPS["peer_echo"], [CapArgumentValue("media:bytes", test_input)])
 
             output = response.final_payload()
             # The plugin echoes back what the host echo returned
@@ -48,7 +49,7 @@ class NestedCallScenario(Scenario):
             input_json = json.dumps({"value": value}).encode()
 
             # Plugin calls host's double (21 * 2 = 42), then doubles again locally (42 * 2 = 84)
-            response = await host.call(TEST_CAPS["nested_call"], input_json, "media:json")
+            response = await host.call_with_arguments(TEST_CAPS["nested_call"], [CapArgumentValue("media:json", input_json)])
 
             output = response.final_payload()
             result = json.loads(output)
@@ -75,7 +76,7 @@ class BidirectionalEchoScenario(Scenario):
             test_values = [b"Test1", b"Test2", b"Test3"]
 
             for test_val in test_values:
-                response = await host.call(TEST_CAPS["peer_echo"], test_val, "media:bytes")
+                response = await host.call_with_arguments(TEST_CAPS["peer_echo"], [CapArgumentValue("media:bytes", test_val)])
 
                 output = response.final_payload()
                 assert output == test_val, f"Expected {test_val!r}, got {output!r}"

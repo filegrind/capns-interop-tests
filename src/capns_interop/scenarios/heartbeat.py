@@ -3,6 +3,7 @@
 import json
 from .. import TEST_CAPS
 from .base import Scenario, ScenarioResult
+from capns.caller import CapArgumentValue
 
 
 class BasicHeartbeatScenario(Scenario):
@@ -22,7 +23,7 @@ class BasicHeartbeatScenario(Scenario):
             duration_ms = 500
             input_json = json.dumps({"value": duration_ms}).encode()
 
-            response = await host.call(TEST_CAPS["heartbeat_stress"], input_json, "media:json")
+            response = await host.call_with_arguments(TEST_CAPS["heartbeat_stress"], [CapArgumentValue("media:json", input_json)])
 
             output = response.final_payload()
             expected = f"stressed-{duration_ms}ms".encode()
@@ -48,7 +49,7 @@ class LongOperationHeartbeatScenario(Scenario):
             duration_ms = 2000
             input_json = json.dumps({"value": duration_ms}).encode()
 
-            response = await host.call(TEST_CAPS["heartbeat_stress"], input_json, "media:json")
+            response = await host.call_with_arguments(TEST_CAPS["heartbeat_stress"], [CapArgumentValue("media:json", input_json)])
 
             output = response.final_payload()
             expected = f"stressed-{duration_ms}ms".encode()
@@ -73,7 +74,7 @@ class StatusUpdateScenario(Scenario):
             steps = 5
             input_json = json.dumps({"value": steps}).encode()
 
-            response = await host.call(TEST_CAPS["with_status"], input_json, "media:json")
+            response = await host.call_with_arguments(TEST_CAPS["with_status"], [CapArgumentValue("media:json", input_json)])
 
             # Final result
             output = response.final_payload()

@@ -29,6 +29,20 @@ def plugin_binaries(project_root):
     return binaries
 
 
+@pytest.fixture(scope="session")
+def host_binaries(project_root):
+    """Return paths to built test host binaries."""
+    artifacts = project_root / "artifacts" / "build"
+    hosts_src = project_root / "src" / "capns_interop" / "hosts"
+
+    return {
+        "rust": artifacts / "rust-host" / "capns-interop-host-rust",
+        "python": hosts_src / "python" / "host.py",
+        "swift": artifacts / "swift-host" / "capns-interop-host-swift",
+        "go": artifacts / "go-host" / "capns-interop-host-go",
+    }
+
+
 @pytest.fixture
 def rust_plugin(plugin_binaries):
     """Return path to Rust plugin."""

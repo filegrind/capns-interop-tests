@@ -3,6 +3,7 @@
 import json
 from .. import TEST_CAPS
 from .base import Scenario, ScenarioResult
+from capns.caller import CapArgumentValue
 
 
 class EchoScenario(Scenario):
@@ -19,8 +20,7 @@ class EchoScenario(Scenario):
     async def execute(self, host, plugin) -> ScenarioResult:
         async def run():
             test_input = b"Hello, World!"
-            # Use call(cap_urn, payload, content_type)
-            response = await host.call(TEST_CAPS["echo"], test_input, "media:bytes")
+            response = await host.call_with_arguments(TEST_CAPS["echo"], [CapArgumentValue("media:bytes", test_input)])
 
             # Get the final payload
             output = response.final_payload()
@@ -45,7 +45,7 @@ class DoubleScenario(Scenario):
             test_input = 42
             input_json = json.dumps({"value": test_input}).encode()
 
-            response = await host.call(TEST_CAPS["double"], input_json, "media:json")
+            response = await host.call_with_arguments(TEST_CAPS["double"], [CapArgumentValue("media:json", input_json)])
 
             output = response.final_payload()
             result_value = json.loads(output)
@@ -74,7 +74,7 @@ class BinaryEchoScenario(Scenario):
             # Test with various binary patterns
             test_data = bytes(range(256))  # All byte values
 
-            response = await host.call(TEST_CAPS["binary_echo"], test_data, "media:bytes")
+            response = await host.call_with_arguments(TEST_CAPS["binary_echo"], [CapArgumentValue("media:bytes", test_data)])
 
             output = response.final_payload()
             assert output == test_data, f"Binary data mismatch"

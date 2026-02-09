@@ -78,9 +78,9 @@ class BidirectionalPluginHost:
         # different message IDs than plugin-initiated requests.
         pass  # Actual implementation would read frames and handle REQs
 
-    async def call(self, cap_urn: str, payload: bytes, content_type: str):
+    async def call_with_arguments(self, cap_urn: str, arguments: list):
         """Forward to underlying AsyncPluginHost."""
-        return await self.host.call(cap_urn, payload, content_type)
+        return await self.host.call_with_arguments(cap_urn, arguments)
 
     def get_plugin_manifest(self):
         """Forward to underlying AsyncPluginHost."""

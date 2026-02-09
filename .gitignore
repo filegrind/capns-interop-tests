@@ -259,3 +259,4 @@ temp/
 .scrap/
 src/capns_interop/plugins/go/capns-interop-plugin-go
 src/capns_interop/plugins/go/interop-test-plugin
+src/capns_interop/hosts/go/capns-interop-host-go

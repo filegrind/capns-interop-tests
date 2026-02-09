@@ -133,7 +133,8 @@ func handleDouble(payload: Data, emitter: CborStreamEmitter, peer: CborPeerInvok
     let json = try JSONSerialization.jsonObject(with: payload) as! [String: Any]
     let value = json["value"] as! Int
     let result = value * 2
-    return try JSONSerialization.data(withJSONObject: result)
+    // NSJSONSerialization rejects bare scalars — encode directly as JSON number bytes
+    return Data("\(result)".utf8)
 }
 
 func handleStreamChunks(payload: Data, emitter: CborStreamEmitter, peer: CborPeerInvoker) throws -> Data {

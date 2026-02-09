@@ -3,6 +3,7 @@
 import json
 from .. import TEST_CAPS
 from .base import Scenario, ScenarioResult
+from capns.caller import CapArgumentValue
 
 
 def _decode_chunk_payload(payload: bytes) -> str:
@@ -35,7 +36,7 @@ class StreamChunksScenario(Scenario):
             chunk_count = 5
             input_json = json.dumps({"value": chunk_count}).encode()
 
-            response = await host.call(TEST_CAPS["stream_chunks"], input_json, "media:json")
+            response = await host.call_with_arguments(TEST_CAPS["stream_chunks"], [CapArgumentValue("media:json", input_json)])
 
             # Should be streaming response
             assert response.is_streaming(), "Expected streaming response"
@@ -71,7 +72,7 @@ class LargePayloadScenario(Scenario):
             size = 1024 * 1024  # 1 MB
             input_json = json.dumps({"value": size}).encode()
 
-            response = await host.call(TEST_CAPS["generate_large"], input_json, "media:json")
+            response = await host.call_with_arguments(TEST_CAPS["generate_large"], [CapArgumentValue("media:json", input_json)])
 
             output = response.concatenated()
             assert len(output) == size, f"Expected {size} bytes, got {len(output)}"
@@ -101,7 +102,7 @@ class BinaryDataScenario(Scenario):
             # Create data with all possible byte values
             test_data = bytes(range(256)) * 100  # 25.6 KB
 
-            response = await host.call(TEST_CAPS["binary_echo"], test_data, "media:bytes")
+            response = await host.call_with_arguments(TEST_CAPS["binary_echo"], [CapArgumentValue("media:bytes", test_data)])
 
             output = response.final_payload()
             assert output == test_data, f"Binary data mismatch (len: {len(output)} vs {len(test_data)})"
@@ -125,7 +126,7 @@ class StreamOrderingScenario(Scenario):
             chunk_count = 20
             input_json = json.dumps({"value": chunk_count}).encode()
 
-            response = await host.call(TEST_CAPS["stream_chunks"], input_json, "media:json")
+            response = await host.call_with_arguments(TEST_CAPS["stream_chunks"], [CapArgumentValue("media:json", input_json)])
 
             # Collect chunks in order — CBOR-decoded, may be JSON-encoded strings
             chunks = []

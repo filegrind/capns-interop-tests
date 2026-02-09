@@ -5,6 +5,7 @@ import time
 import statistics
 from .. import TEST_CAPS
 from .base import Scenario, ScenarioResult, ScenarioStatus
+from capns.caller import CapArgumentValue
 
 
 class LatencyBenchmarkScenario(Scenario):
@@ -27,7 +28,7 @@ class LatencyBenchmarkScenario(Scenario):
                 test_input = b"benchmark"
 
                 start = time.perf_counter()
-                response = await host.call(TEST_CAPS["echo"], test_input, "media:bytes")
+                response = await host.call_with_arguments(TEST_CAPS["echo"], [CapArgumentValue("media:bytes", test_input)])
                 output = response.final_payload()
                 duration = (time.perf_counter() - start) * 1000  # ms
 
@@ -81,7 +82,7 @@ class ThroughputBenchmarkScenario(Scenario):
             count = 0
 
             while (time.perf_counter() - start) < duration_seconds:
-                response = await host.call(TEST_CAPS["echo"], test_input, "media:bytes")
+                response = await host.call_with_arguments(TEST_CAPS["echo"], [CapArgumentValue("media:bytes", test_input)])
                 output = response.final_payload()
                 assert output == test_input
                 count += 1
@@ -124,7 +125,7 @@ class LargePayloadThroughputScenario(Scenario):
             input_json = json.dumps({"value": payload_size}).encode()
 
             start = time.perf_counter()
-            response = await host.call(TEST_CAPS["generate_large"], input_json, "media:json")
+            response = await host.call_with_arguments(TEST_CAPS["generate_large"], [CapArgumentValue("media:json", input_json)])
             output = response.concatenated()
             elapsed = time.perf_counter() - start
 
@@ -166,7 +167,7 @@ class ConcurrentStressScenario(Scenario):
             work_units = 100
             input_json = json.dumps({"value": work_units}).encode()
 
-            response = await host.call(TEST_CAPS["concurrent_stress"], input_json, "media:json")
+            response = await host.call_with_arguments(TEST_CAPS["concurrent_stress"], [CapArgumentValue("media:json", input_json)])
 
             output = response.final_payload()
             # Just verify it completed successfully

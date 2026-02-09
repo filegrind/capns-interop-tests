@@ -8,6 +8,7 @@ import json
 import hashlib
 from .. import TEST_CAPS
 from .base import Scenario, ScenarioResult
+from capns.caller import CapArgumentValue
 
 
 class LargeIncomingPayloadScenario(Scenario):
@@ -29,7 +30,7 @@ class LargeIncomingPayloadScenario(Scenario):
             test_data = (pattern * (size // len(pattern) + 1))[:size]
 
             # Send large payload to plugin (triggers automatic chunking)
-            response = await host.call(TEST_CAPS["process_large"], test_data, "media:bytes")
+            response = await host.call_with_arguments(TEST_CAPS["process_large"], [CapArgumentValue("media:bytes", test_data)])
 
             # Plugin should return size + checksum
             output = response.final_payload()
@@ -64,7 +65,7 @@ class MassiveIncomingPayloadScenario(Scenario):
             test_data = (pattern * (size // len(pattern) + 1))[:size]
 
             # Send massive payload (will be split into many chunks)
-            response = await host.call(TEST_CAPS["process_large"], test_data, "media:bytes")
+            response = await host.call_with_arguments(TEST_CAPS["process_large"], [CapArgumentValue("media:bytes", test_data)])
 
             # Plugin should return size + checksum
             output = response.final_payload()
@@ -97,7 +98,7 @@ class BinaryIncomingScenario(Scenario):
             test_data = bytes(range(256)) * 1024  # 256 KB with all byte values
 
             # Send binary data to plugin
-            response = await host.call(TEST_CAPS["verify_binary"], test_data, "media:bytes")
+            response = await host.call_with_arguments(TEST_CAPS["verify_binary"], [CapArgumentValue("media:bytes", test_data)])
 
             # Plugin should verify and return "ok"
             output = response.final_payload().decode()
@@ -124,7 +125,7 @@ class HashIncomingScenario(Scenario):
             test_data = bytes([i % 256 for i in range(size)])
 
             # Send to plugin for hashing
-            response = await host.call(TEST_CAPS["hash_incoming"], test_data, "media:bytes")
+            response = await host.call_with_arguments(TEST_CAPS["hash_incoming"], [CapArgumentValue("media:bytes", test_data)])
 
             # Plugin should return SHA256 hash
             output = response.final_payload().decode()
@@ -155,7 +156,7 @@ class MultipleIncomingScenario(Scenario):
                 test_data = bytes([i] * size)
 
                 # Send to plugin
-                response = await host.call(TEST_CAPS["process_large"], test_data, "media:bytes")
+                response = await host.call_with_arguments(TEST_CAPS["process_large"], [CapArgumentValue("media:bytes", test_data)])
 
                 # Verify response
                 output = response.final_payload()
@@ -185,7 +186,7 @@ class ZeroLengthIncomingScenario(Scenario):
         async def run():
             test_data = b""
 
-            response = await host.call(TEST_CAPS["process_large"], test_data, "media:bytes")
+            response = await host.call_with_arguments(TEST_CAPS["process_large"], [CapArgumentValue("media:bytes", test_data)])
 
             output = response.final_payload()
             result = json.loads(output.decode())

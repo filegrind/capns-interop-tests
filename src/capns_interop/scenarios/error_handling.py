@@ -3,6 +3,7 @@
 import json
 from .. import TEST_CAPS
 from .base import Scenario, ScenarioResult, ScenarioStatus
+from capns.caller import CapArgumentValue
 
 
 class ThrowErrorScenario(Scenario):
@@ -22,7 +23,7 @@ class ThrowErrorScenario(Scenario):
             input_json = json.dumps({"value": error_msg}).encode()
 
             try:
-                response = await host.call(TEST_CAPS["throw_error"], input_json, "media:json")
+                response = await host.call_with_arguments(TEST_CAPS["throw_error"], [CapArgumentValue("media:json", input_json)])
                 # Should not reach here
                 assert False, "Expected PluginError to be raised"
             except Exception as e:
@@ -50,7 +51,7 @@ class InvalidCapScenario(Scenario):
             fake_cap = 'cap:in="media:void";op=nonexistent;out="media:void"'
 
             try:
-                response = await host.call(fake_cap, b"", "media:void")
+                response = await host.call_with_arguments(fake_cap, [CapArgumentValue("media:void", b"")])
                 # Should not reach here
                 assert False, "Expected error for non-existent cap"
             except Exception as e:
@@ -78,7 +79,7 @@ class MalformedPayloadScenario(Scenario):
             malformed_json = b"{invalid json"
 
             try:
-                response = await host.call(TEST_CAPS["double"], malformed_json, "media:json")
+                response = await host.call_with_arguments(TEST_CAPS["double"], [CapArgumentValue("media:json", malformed_json)])
                 # Should not reach here
                 assert False, "Expected error for malformed JSON"
             except Exception as e:
@@ -105,7 +106,7 @@ class GracefulShutdownScenario(Scenario):
             # Perform a few operations
             for i in range(3):
                 test_input = f"test-{i}".encode()
-                response = await host.call(TEST_CAPS["echo"], test_input, "media:bytes")
+                response = await host.call_with_arguments(TEST_CAPS["echo"], [CapArgumentValue("media:bytes", test_input)])
                 output = response.final_payload()
                 assert output == test_input
 
