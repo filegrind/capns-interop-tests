@@ -17,9 +17,6 @@ from capns_interop.scenarios.base import ScenarioStatus
 async def test_throw_error(plugin_binaries, plugin_name):
     """Test error propagation from plugin to host."""
     plugin_path = plugin_binaries[plugin_name]
-    if not plugin_path.exists():
-        pytest.skip(f"{plugin_name.title()} plugin not built")
-
     orchestrator = Orchestrator()
     scenario = ThrowErrorScenario()
 
@@ -35,9 +32,6 @@ async def test_throw_error(plugin_binaries, plugin_name):
 async def test_invalid_cap(plugin_binaries, plugin_name):
     """Test calling non-existent capability."""
     plugin_path = plugin_binaries[plugin_name]
-    if not plugin_path.exists():
-        pytest.skip(f"{plugin_name.title()} plugin not built")
-
     orchestrator = Orchestrator()
     scenario = InvalidCapScenario()
 
@@ -53,9 +47,6 @@ async def test_invalid_cap(plugin_binaries, plugin_name):
 async def test_malformed_payload(plugin_binaries, plugin_name):
     """Test sending malformed JSON payload."""
     plugin_path = plugin_binaries[plugin_name]
-    if not plugin_path.exists():
-        pytest.skip(f"{plugin_name.title()} plugin not built")
-
     orchestrator = Orchestrator()
     scenario = MalformedPayloadScenario()
 
@@ -71,9 +62,6 @@ async def test_malformed_payload(plugin_binaries, plugin_name):
 async def test_graceful_shutdown(plugin_binaries, plugin_name):
     """Test graceful shutdown after operations."""
     plugin_path = plugin_binaries[plugin_name]
-    if not plugin_path.exists():
-        pytest.skip(f"{plugin_name.title()} plugin not built")
-
     orchestrator = Orchestrator()
     scenario = GracefulShutdownScenario()
 

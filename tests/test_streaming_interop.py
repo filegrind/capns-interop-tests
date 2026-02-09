@@ -17,9 +17,6 @@ from capns_interop.scenarios.base import ScenarioStatus
 async def test_stream_chunks(plugin_binaries, plugin_name):
     """Test streaming multiple chunks."""
     plugin_path = plugin_binaries[plugin_name]
-    if not plugin_path.exists():
-        pytest.skip(f"{plugin_name.title()} plugin not built")
-
     orchestrator = Orchestrator()
     scenario = StreamChunksScenario()
 
@@ -35,9 +32,6 @@ async def test_stream_chunks(plugin_binaries, plugin_name):
 async def test_large_payload(plugin_binaries, plugin_name):
     """Test large payload transfer (1MB)."""
     plugin_path = plugin_binaries[plugin_name]
-    if not plugin_path.exists():
-        pytest.skip(f"{plugin_name.title()} plugin not built")
-
     orchestrator = Orchestrator()
     scenario = LargePayloadScenario()
 
@@ -53,9 +47,6 @@ async def test_large_payload(plugin_binaries, plugin_name):
 async def test_binary_data(plugin_binaries, plugin_name):
     """Test binary data with all byte values."""
     plugin_path = plugin_binaries[plugin_name]
-    if not plugin_path.exists():
-        pytest.skip(f"{plugin_name.title()} plugin not built")
-
     orchestrator = Orchestrator()
     scenario = BinaryDataScenario()
 
@@ -71,9 +62,6 @@ async def test_binary_data(plugin_binaries, plugin_name):
 async def test_stream_ordering(plugin_binaries, plugin_name):
     """Test streaming chunk ordering."""
     plugin_path = plugin_binaries[plugin_name]
-    if not plugin_path.exists():
-        pytest.skip(f"{plugin_name.title()} plugin not built")
-
     orchestrator = Orchestrator()
     scenario = StreamOrderingScenario()
 

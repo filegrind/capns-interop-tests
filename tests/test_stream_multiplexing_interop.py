@@ -22,9 +22,6 @@ from capns_interop.scenarios.base import ScenarioStatus
 async def test_single_stream(plugin_binaries, plugin_name):
     """Test single stream with STREAM_START + CHUNK + STREAM_END."""
     plugin_path = plugin_binaries[plugin_name]
-    if not plugin_path.exists():
-        pytest.skip(f"{plugin_name.title()} plugin not built")
-
     orchestrator = Orchestrator()
     scenario = SingleStreamScenario()
 
@@ -40,9 +37,6 @@ async def test_single_stream(plugin_binaries, plugin_name):
 async def test_multiple_streams(plugin_binaries, plugin_name):
     """Test multiple independent streams in a single request."""
     plugin_path = plugin_binaries[plugin_name]
-    if not plugin_path.exists():
-        pytest.skip(f"{plugin_name.title()} plugin not built")
-
     orchestrator = Orchestrator()
     scenario = MultipleStreamsScenario()
 
@@ -58,9 +52,6 @@ async def test_multiple_streams(plugin_binaries, plugin_name):
 async def test_empty_stream(plugin_binaries, plugin_name):
     """Test stream with no chunks (STREAM_START immediately followed by STREAM_END)."""
     plugin_path = plugin_binaries[plugin_name]
-    if not plugin_path.exists():
-        pytest.skip(f"{plugin_name.title()} plugin not built")
-
     orchestrator = Orchestrator()
     scenario = EmptyStreamScenario()
 
@@ -76,9 +67,6 @@ async def test_empty_stream(plugin_binaries, plugin_name):
 async def test_interleaved_streams(plugin_binaries, plugin_name):
     """Test interleaved chunks from multiple streams."""
     plugin_path = plugin_binaries[plugin_name]
-    if not plugin_path.exists():
-        pytest.skip(f"{plugin_name.title()} plugin not built")
-
     orchestrator = Orchestrator()
     scenario = InterleavedStreamsScenario()
 
@@ -94,9 +82,6 @@ async def test_interleaved_streams(plugin_binaries, plugin_name):
 async def test_stream_error_handling(plugin_binaries, plugin_name):
     """Test error handling for stream protocol violations."""
     plugin_path = plugin_binaries[plugin_name]
-    if not plugin_path.exists():
-        pytest.skip(f"{plugin_name.title()} plugin not built")
-
     orchestrator = Orchestrator()
     scenario = StreamErrorHandlingScenario()
 
@@ -114,8 +99,6 @@ async def test_protocol_version_negotiation(plugin_binaries):
 
     for plugin_name in ["rust", "python", "swift", "go"]:
         plugin_path = plugin_binaries[plugin_name]
-        if not plugin_path.exists():
-            continue
 
         # Test handshake negotiates version 2
         # This is implicitly tested by all scenarios, but we verify explicitly here

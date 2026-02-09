@@ -23,7 +23,7 @@ from pathlib import Path
 capns_py_path = Path(__file__).parent.parent.parent.parent.parent / "capns-py" / "src"
 sys.path.insert(0, str(capns_py_path))
 
-from capns.async_plugin_host import AsyncPluginHost
+from capns.async_plugin_host import AsyncPluginHost, cbor_decode_response
 from capns.caller import CapArgumentValue
 
 
@@ -93,8 +93,11 @@ class PythonTestHost:
             args.append(CapArgumentValue(media_urn, value))
 
         start_ns = time.perf_counter_ns()
-        response = await self.host.call_with_arguments(cap_urn, args)
+        raw_response = await self.host.call_with_arguments(cap_urn, args)
         duration_ns = time.perf_counter_ns() - start_ns
+
+        # CBOR-decode — matches Rust/Go/Swift host decode_cbor_values()
+        response = cbor_decode_response(raw_response)
 
         if response.is_streaming():
             chunks_b64 = [
@@ -115,6 +118,34 @@ class PythonTestHost:
                 "is_streaming": False,
                 "duration_ns": duration_ns,
             }
+
+    async def handle_throughput(self, cmd: dict) -> dict:
+        payload_mb = cmd.get("payload_mb", 5)
+        payload_size = payload_mb * 1024 * 1024
+        cap_urn = 'cap:in="media:number;form=scalar";op=generate_large;out="media:bytes"'
+
+        input_json = json.dumps({"value": payload_size}).encode()
+        args = [CapArgumentValue("media:json", input_json)]
+
+        start = time.perf_counter()
+        raw_response = await self.host.call_with_arguments(cap_urn, args)
+        elapsed = time.perf_counter() - start
+
+        # CBOR-decode to get exact payload bytes
+        decoded = cbor_decode_response(raw_response)
+        total_bytes = len(decoded.concatenated())
+
+        if total_bytes != payload_size:
+            return {"ok": False, "error": f"Expected {payload_size} bytes, got {total_bytes}"}
+
+        mb_per_sec = payload_mb / elapsed
+
+        return {
+            "ok": True,
+            "payload_mb": payload_mb,
+            "duration_s": round(elapsed, 4),
+            "mb_per_sec": round(mb_per_sec, 2),
+        }
 
     async def handle_send_heartbeat(self) -> dict:
         await self.host.send_heartbeat()
@@ -183,6 +214,8 @@ class PythonTestHost:
                     response = await self.handle_spawn(cmd)
                 elif cmd_type == "call":
                     response = await self.handle_call(cmd)
+                elif cmd_type == "throughput":
+                    response = await self.handle_throughput(cmd)
                 elif cmd_type == "send_heartbeat":
                     response = await self.handle_send_heartbeat()
                 elif cmd_type == "get_manifest":

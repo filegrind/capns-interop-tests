@@ -16,9 +16,6 @@ from capns_interop.scenarios.base import ScenarioStatus
 async def test_basic_heartbeat(plugin_binaries, plugin_name):
     """Test basic heartbeat during operation."""
     plugin_path = plugin_binaries[plugin_name]
-    if not plugin_path.exists():
-        pytest.skip(f"{plugin_name.title()} plugin not built")
-
     orchestrator = Orchestrator()
     scenario = BasicHeartbeatScenario()
 
@@ -34,9 +31,6 @@ async def test_basic_heartbeat(plugin_binaries, plugin_name):
 async def test_long_operation_heartbeat(plugin_binaries, plugin_name):
     """Test heartbeat during long operation (2 seconds)."""
     plugin_path = plugin_binaries[plugin_name]
-    if not plugin_path.exists():
-        pytest.skip(f"{plugin_name.title()} plugin not built")
-
     orchestrator = Orchestrator()
     scenario = LongOperationHeartbeatScenario()
 
@@ -52,9 +46,6 @@ async def test_long_operation_heartbeat(plugin_binaries, plugin_name):
 async def test_status_updates(plugin_binaries, plugin_name):
     """Test status updates during processing."""
     plugin_path = plugin_binaries[plugin_name]
-    if not plugin_path.exists():
-        pytest.skip(f"{plugin_name.title()} plugin not built")
-
     orchestrator = Orchestrator()
     scenario = StatusUpdateScenario()
 

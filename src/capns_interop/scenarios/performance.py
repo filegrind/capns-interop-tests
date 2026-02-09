@@ -151,6 +151,19 @@ class LargePayloadThroughputScenario(Scenario):
         return await self._timed_execute(run)
 
 
+class MatrixThroughputScenario:
+    """Throughput measurement for the host x plugin matrix.
+
+    NOT a Scenario subclass — uses RemoteHost.run_throughput() which
+    delegates the entire benchmark to the host binary.  The host calls
+    generate_large over CBOR (chunked automatically), measures wall-clock
+    time, and returns only the metric.  No payload crosses JSON-lines.
+    """
+
+    def __init__(self, payload_mb: int = 5):
+        self.payload_mb = payload_mb
+
+
 class ConcurrentStressScenario(Scenario):
     """Test concurrent request handling."""
 

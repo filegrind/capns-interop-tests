@@ -47,20 +47,6 @@ SCENARIOS = {
 }
 
 
-def _host_available(host_binaries: dict, host_lang: str) -> bool:
-    """Check if a host binary is available."""
-    path = host_binaries[host_lang]
-    if path.suffix == ".py":
-        return path.exists()
-    return path.exists()
-
-
-def _plugin_available(plugin_binaries: dict, plugin_lang: str) -> bool:
-    """Check if a plugin binary is available."""
-    path = plugin_binaries[plugin_lang]
-    return path.exists()
-
-
 @pytest.mark.asyncio
 @pytest.mark.timeout(60)
 @pytest.mark.parametrize("host_lang", HOSTS)
@@ -72,12 +58,6 @@ async def test_host_plugin_matrix(
     """Test a specific host x plugin x scenario combination."""
     host_path = host_binaries[host_lang]
     plugin_path = plugin_binaries[plugin_lang]
-
-    if not _host_available(host_binaries, host_lang):
-        pytest.skip(f"{host_lang.title()} host not built")
-
-    if not _plugin_available(plugin_binaries, plugin_lang):
-        pytest.skip(f"{plugin_lang.title()} plugin not built")
 
     scenario_cls = SCENARIOS[scenario_name]
     scenario = scenario_cls()

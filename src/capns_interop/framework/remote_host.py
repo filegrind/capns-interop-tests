@@ -155,6 +155,28 @@ class RemoteHost:
             payload_bytes = base64.b64decode(payload_b64) if payload_b64 else b""
             return PluginResponse.single(payload_bytes)
 
+    async def run_throughput(self, payload_mb: int = 5) -> dict:
+        """Run a throughput benchmark inside the host binary.
+
+        The host calls generate_large internally via CBOR (chunked),
+        measures wall-clock time, and returns only the metric.
+        No payload crosses the JSON-line boundary.
+
+        Returns:
+            Dict with keys: ok, payload_mb, duration_s, mb_per_sec
+        """
+        response = await self._host.send_command({
+            "cmd": "throughput",
+            "payload_mb": payload_mb,
+        })
+
+        if not response.get("ok"):
+            raise HostProcessError(
+                f"Throughput failed: {response.get('error', 'unknown error')}"
+            )
+
+        return response
+
     async def send_heartbeat(self):
         """Send heartbeat via the remote host."""
         response = await self._host.send_command({"cmd": "send_heartbeat"})

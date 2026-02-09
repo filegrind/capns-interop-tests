@@ -347,6 +347,58 @@ impl RustTestHost {
         }
     }
 
+    async fn handle_throughput(&self, cmd: &Value) -> Value {
+        let host = match &self.host {
+            Some(h) => h,
+            None => return json!({"ok": false, "error": "No host"}),
+        };
+
+        let payload_mb = cmd["payload_mb"].as_u64().unwrap_or(5) as usize;
+        let payload_size = payload_mb * 1024 * 1024;
+        let cap_urn = r#"cap:in="media:number;form=scalar";op=generate_large;out="media:bytes""#;
+
+        let input_json = serde_json::to_vec(&json!({"value": payload_size})).unwrap();
+        let args = vec![CapArgumentValue::new("media:json".to_string(), input_json)];
+
+        let start = std::time::Instant::now();
+        let response = match host.call_with_arguments(cap_urn, &args).await {
+            Ok(r) => r,
+            Err(e) => return json!({"ok": false, "error": format!("{e}")}),
+        };
+        let elapsed = start.elapsed().as_secs_f64();
+
+        // CBOR-decode to get exact payload bytes
+        let raw = match &response {
+            PluginResponse::Streaming(chunks) => {
+                let mut all = Vec::new();
+                for c in chunks { all.extend_from_slice(&c.payload); }
+                all
+            }
+            PluginResponse::Single(data) => data.clone(),
+        };
+        let decoded = match decode_cbor_values(&raw) {
+            Ok(d) => d,
+            Err(e) => return json!({"ok": false, "error": format!("CBOR decode: {e}")}),
+        };
+        let total_bytes: usize = decoded.iter().map(|v| v.len()).sum();
+
+        if total_bytes != payload_size {
+            return json!({
+                "ok": false,
+                "error": format!("Expected {} bytes, got {}", payload_size, total_bytes),
+            });
+        }
+
+        let mb_per_sec = payload_mb as f64 / elapsed;
+
+        json!({
+            "ok": true,
+            "payload_mb": payload_mb,
+            "duration_s": (elapsed * 10000.0).round() / 10000.0,
+            "mb_per_sec": (mb_per_sec * 100.0).round() / 100.0,
+        })
+    }
+
     async fn handle_send_heartbeat(&self) -> Value {
         if let Some(host) = &self.host {
             match host.send_heartbeat().await {
@@ -482,6 +534,7 @@ async fn main() {
         let response = match cmd_type {
             "spawn" => host.handle_spawn(&cmd).await,
             "call" => host.handle_call(&cmd).await,
+            "throughput" => host.handle_throughput(&cmd).await,
             "send_heartbeat" => host.handle_send_heartbeat().await,
             "get_manifest" => host.handle_get_manifest(),
             "shutdown" => {

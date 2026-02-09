@@ -109,9 +109,6 @@ def calculate_checksum(file_path: Path) -> str:
 async def test_single_file_read(plugin_binaries, test_files, plugin_name):
     """Test plugin reads single file and returns correct size + checksum."""
     plugin_path = plugin_binaries[plugin_name]
-    if not plugin_path.exists():
-        pytest.skip(f"{plugin_name.title()} plugin not built")
-
     file_path = test_files["small"]
     expected_size = file_path.stat().st_size
     expected_checksum = calculate_checksum(file_path)
@@ -131,9 +128,6 @@ async def test_single_file_read(plugin_binaries, test_files, plugin_name):
 async def test_empty_file_handling(plugin_binaries, test_files, plugin_name):
     """Test plugin handles empty files correctly."""
     plugin_path = plugin_binaries[plugin_name]
-    if not plugin_path.exists():
-        pytest.skip(f"{plugin_name.title()} plugin not built")
-
     file_path = test_files["empty"]
     expected_checksum = hashlib.sha256(b"").hexdigest()
 
@@ -151,9 +145,6 @@ async def test_empty_file_handling(plugin_binaries, test_files, plugin_name):
 async def test_binary_file_preservation(plugin_binaries, test_files, plugin_name):
     """Test binary data is preserved correctly (all 256 byte values)."""
     plugin_path = plugin_binaries[plugin_name]
-    if not plugin_path.exists():
-        pytest.skip(f"{plugin_name.title()} plugin not built")
-
     file_path = test_files["binary"]
     expected_size = 256
     expected_checksum = calculate_checksum(file_path)
@@ -172,9 +163,6 @@ async def test_binary_file_preservation(plugin_binaries, test_files, plugin_name
 async def test_large_file_handling(plugin_binaries, test_files, plugin_name):
     """Test plugin handles large files (100KB) correctly."""
     plugin_path = plugin_binaries[plugin_name]
-    if not plugin_path.exists():
-        pytest.skip(f"{plugin_name.title()} plugin not built")
-
     file_path = test_files["large"]
     expected_size = 100 * 1024
     expected_checksum = calculate_checksum(file_path)
@@ -193,9 +181,6 @@ async def test_large_file_handling(plugin_binaries, test_files, plugin_name):
 async def test_missing_file_error(plugin_binaries, tmp_path, plugin_name):
     """Test plugin fails gracefully on missing file."""
     plugin_path = plugin_binaries[plugin_name]
-    if not plugin_path.exists():
-        pytest.skip(f"{plugin_name.title()} plugin not built")
-
     missing_file = tmp_path / "nonexistent.txt"
 
     # Should fail with non-zero exit code
@@ -221,9 +206,6 @@ async def test_cross_language_consistency(plugin_binaries, test_files):
 
     for plugin_name in ["rust", "python", "go", "swift"]:
         plugin_path = plugin_binaries[plugin_name]
-        if not plugin_path.exists():
-            continue
-
         result = invoke_plugin_cli(plugin_path, "read_file_info", str(file_path))
         results[plugin_name] = result
 
@@ -250,10 +232,7 @@ async def test_utf8_text_file(plugin_binaries, tmp_path):
     expected_checksum = hashlib.sha256(utf8_content.encode('utf-8')).hexdigest()
 
     for plugin_name in ["rust", "python", "go", "swift"]:
-        plugin_path = plugin_binaries.get(plugin_name)
-        if not plugin_path or not plugin_path.exists():
-            continue
-
+        plugin_path = plugin_binaries[plugin_name]
         result = invoke_plugin_cli(plugin_path, "read_file_info", str(utf8_file))
 
         assert result["size"] == expected_size, \

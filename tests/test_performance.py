@@ -17,9 +17,6 @@ from capns_interop.scenarios.base import ScenarioStatus
 async def test_latency_benchmark(plugin_binaries, plugin_name):
     """Benchmark request/response latency."""
     plugin_path = plugin_binaries[plugin_name]
-    if not plugin_path.exists():
-        pytest.skip(f"{plugin_name.title()} plugin not built")
-
     orchestrator = Orchestrator()
     scenario = LatencyBenchmarkScenario()
 
@@ -39,9 +36,6 @@ async def test_latency_benchmark(plugin_binaries, plugin_name):
 async def test_throughput_benchmark(plugin_binaries, plugin_name):
     """Benchmark throughput (requests per second)."""
     plugin_path = plugin_binaries[plugin_name]
-    if not plugin_path.exists():
-        pytest.skip(f"{plugin_name.title()} plugin not built")
-
     orchestrator = Orchestrator()
     scenario = ThroughputBenchmarkScenario()
 
@@ -61,9 +55,6 @@ async def test_throughput_benchmark(plugin_binaries, plugin_name):
 async def test_large_payload_throughput(plugin_binaries, plugin_name):
     """Benchmark large payload transfer speed."""
     plugin_path = plugin_binaries[plugin_name]
-    if not plugin_path.exists():
-        pytest.skip(f"{plugin_name.title()} plugin not built")
-
     orchestrator = Orchestrator()
     scenario = LargePayloadThroughputScenario()
 
@@ -83,9 +74,6 @@ async def test_large_payload_throughput(plugin_binaries, plugin_name):
 async def test_concurrent_stress(plugin_binaries, plugin_name):
     """Test concurrent request handling."""
     plugin_path = plugin_binaries[plugin_name]
-    if not plugin_path.exists():
-        pytest.skip(f"{plugin_name.title()} plugin not built")
-
     orchestrator = Orchestrator()
     scenario = ConcurrentStressScenario()
 

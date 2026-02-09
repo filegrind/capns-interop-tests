@@ -23,9 +23,6 @@ from capns_interop.scenarios.base import ScenarioStatus
 async def test_large_incoming_payload(plugin_binaries, plugin_name):
     """Test plugin receiving 1MB incoming payload from host."""
     plugin_path = plugin_binaries[plugin_name]
-    if not plugin_path.exists():
-        pytest.skip(f"{plugin_name.title()} plugin not built")
-
     orchestrator = Orchestrator()
     scenario = LargeIncomingPayloadScenario()
 
@@ -42,9 +39,6 @@ async def test_large_incoming_payload(plugin_binaries, plugin_name):
 async def test_massive_incoming_payload(plugin_binaries, plugin_name):
     """Test plugin receiving 10MB incoming payload with heavy chunking."""
     plugin_path = plugin_binaries[plugin_name]
-    if not plugin_path.exists():
-        pytest.skip(f"{plugin_name.title()} plugin not built")
-
     orchestrator = Orchestrator()
     scenario = MassiveIncomingPayloadScenario()
 
@@ -61,9 +55,6 @@ async def test_massive_incoming_payload(plugin_binaries, plugin_name):
 async def test_binary_incoming(plugin_binaries, plugin_name):
     """Test plugin receiving binary data with all byte values."""
     plugin_path = plugin_binaries[plugin_name]
-    if not plugin_path.exists():
-        pytest.skip(f"{plugin_name.title()} plugin not built")
-
     orchestrator = Orchestrator()
     scenario = BinaryIncomingScenario()
 
@@ -80,9 +71,6 @@ async def test_binary_incoming(plugin_binaries, plugin_name):
 async def test_hash_incoming(plugin_binaries, plugin_name):
     """Test plugin hashing 5MB incoming payload."""
     plugin_path = plugin_binaries[plugin_name]
-    if not plugin_path.exists():
-        pytest.skip(f"{plugin_name.title()} plugin not built")
-
     orchestrator = Orchestrator()
     scenario = HashIncomingScenario()
 
@@ -99,9 +87,6 @@ async def test_hash_incoming(plugin_binaries, plugin_name):
 async def test_multiple_incoming(plugin_binaries, plugin_name):
     """Test multiple large incoming requests in sequence."""
     plugin_path = plugin_binaries[plugin_name]
-    if not plugin_path.exists():
-        pytest.skip(f"{plugin_name.title()} plugin not built")
-
     orchestrator = Orchestrator()
     scenario = MultipleIncomingScenario()
 
@@ -118,9 +103,6 @@ async def test_multiple_incoming(plugin_binaries, plugin_name):
 async def test_zero_length_incoming(plugin_binaries, plugin_name):
     """Test plugin receiving empty payload."""
     plugin_path = plugin_binaries[plugin_name]
-    if not plugin_path.exists():
-        pytest.skip(f"{plugin_name.title()} plugin not built")
-
     orchestrator = Orchestrator()
     scenario = ZeroLengthIncomingScenario()
 

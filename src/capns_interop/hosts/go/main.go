@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"os/exec"
 	"strings"
@@ -56,6 +57,8 @@ func main() {
 			response, err = host.handleSpawn(cmd)
 		case "call":
 			response, err = host.handleCall(cmd)
+		case "throughput":
+			response, err = host.handleThroughput(cmd)
 		case "send_heartbeat":
 			response, err = host.handleSendHeartbeat()
 		case "get_manifest":
@@ -353,6 +356,61 @@ func decodeCborValues(raw []byte) ([][]byte, error) {
 	}
 
 	return results, nil
+}
+
+func (h *goTestHost) handleThroughput(cmd map[string]interface{}) (map[string]interface{}, error) {
+	if h.host == nil {
+		return nil, fmt.Errorf("no host")
+	}
+
+	payloadMB := 5
+	if v, ok := cmd["payload_mb"].(float64); ok {
+		payloadMB = int(v)
+	}
+	payloadSize := payloadMB * 1024 * 1024
+	capUrn := `cap:in="media:number;form=scalar";op=generate_large;out="media:bytes"`
+
+	inputJSON, _ := json.Marshal(map[string]interface{}{"value": payloadSize})
+	args := []capns.CapArgumentValue{capns.NewCapArgumentValue("media:json", inputJSON)}
+
+	start := time.Now()
+	response, err := h.host.CallWithArguments(capUrn, args)
+	elapsed := time.Since(start).Seconds()
+	if err != nil {
+		return nil, err
+	}
+
+	// CBOR-decode to get exact payload bytes
+	var raw []byte
+	switch response.Type {
+	case capns.PluginResponseTypeStreaming:
+		for _, chunk := range response.Streaming {
+			raw = append(raw, chunk.Payload...)
+		}
+	default:
+		raw = response.Single
+	}
+	decoded, err := decodeCborValues(raw)
+	if err != nil {
+		return nil, fmt.Errorf("CBOR decode: %w", err)
+	}
+	totalBytes := 0
+	for _, d := range decoded {
+		totalBytes += len(d)
+	}
+
+	if totalBytes != payloadSize {
+		return nil, fmt.Errorf("expected %d bytes, got %d", payloadSize, totalBytes)
+	}
+
+	mbPerSec := float64(payloadMB) / elapsed
+
+	return map[string]interface{}{
+		"ok":         true,
+		"payload_mb": payloadMB,
+		"duration_s": math.Round(elapsed*10000) / 10000,
+		"mb_per_sec": math.Round(mbPerSec*100) / 100,
+	}, nil
 }
 
 func (h *goTestHost) handleSendHeartbeat() (map[string]interface{}, error) {

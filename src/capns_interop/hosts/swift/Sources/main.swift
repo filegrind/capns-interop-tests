@@ -263,6 +263,64 @@ struct SwiftTestHost {
         }
     }
 
+    func handleThroughput(_ cmd: [String: Any]) async -> [String: Any] {
+        guard let host = pluginHost else {
+            return ["ok": false, "error": "No host"]
+        }
+
+        let payloadMB = (cmd["payload_mb"] as? Int) ?? 5
+        let payloadSize = payloadMB * 1024 * 1024
+        let capUrn = "cap:in=\"media:number;form=scalar\";op=generate_large;out=\"media:bytes\""
+
+        guard let inputJSON = try? JSONSerialization.data(
+            withJSONObject: ["value": payloadSize]
+        ) else {
+            return ["ok": false, "error": "Failed to encode input JSON"]
+        }
+
+        let arguments: [(mediaUrn: String, value: Data)] = [
+            (mediaUrn: "media:json", value: inputJSON)
+        ]
+
+        let start = DispatchTime.now()
+
+        do {
+            let response = try await host.callWithArguments(capUrn: capUrn, arguments: arguments)
+            let elapsedNs = DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds
+            let elapsed = Double(elapsedNs) / 1_000_000_000.0
+
+            // CBOR-decode to get exact payload bytes
+            let rawData: Data
+            switch response {
+            case .single(let data):
+                rawData = data
+            case .streaming(let chunks):
+                var all = Data()
+                for chunk in chunks { all.append(chunk.payload) }
+                rawData = all
+            }
+            guard let decoded = decodeCborValues(rawData) else {
+                return ["ok": false, "error": "CBOR decode failed"]
+            }
+            let totalBytes = decoded.reduce(0) { $0 + $1.count }
+
+            if totalBytes != payloadSize {
+                return ["ok": false, "error": "Expected \(payloadSize) bytes, got \(totalBytes)"]
+            }
+
+            let mbPerSec = Double(payloadMB) / elapsed
+
+            return [
+                "ok": true,
+                "payload_mb": payloadMB,
+                "duration_s": (elapsed * 10000).rounded() / 10000,
+                "mb_per_sec": (mbPerSec * 100).rounded() / 100,
+            ]
+        } catch {
+            return ["ok": false, "error": "\(error)"]
+        }
+    }
+
     func handleSendHeartbeat() async -> [String: Any] {
         guard let host = pluginHost else {
             return ["ok": false, "error": "No host"]
@@ -395,6 +453,15 @@ while let line = readLine(strippingNewline: true) {
         var asyncResponse: [String: Any] = [:]
         Task {
             asyncResponse = await host.handleCall(cmd)
+            semaphore.signal()
+        }
+        semaphore.wait()
+        response = asyncResponse
+    case "throughput":
+        let semaphore = DispatchSemaphore(value: 0)
+        var asyncResponse: [String: Any] = [:]
+        Task {
+            asyncResponse = await host.handleThroughput(cmd)
             semaphore.signal()
         }
         semaphore.wait()

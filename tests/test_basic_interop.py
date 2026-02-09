@@ -79,10 +79,6 @@ async def test_rust_get_manifest(rust_plugin):
 async def test_echo_all_plugins(plugin_binaries, plugin_name):
     """Test echo capability across all plugin implementations."""
     plugin_path = plugin_binaries[plugin_name]
-
-    if not plugin_path.exists():
-        pytest.skip(f"{plugin_name.title()} plugin not built")
-
     orchestrator = Orchestrator()
     scenario = EchoScenario()
 
