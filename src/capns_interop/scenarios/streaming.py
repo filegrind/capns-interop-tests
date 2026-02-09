@@ -5,6 +5,20 @@ from .. import TEST_CAPS
 from .base import Scenario, ScenarioResult
 
 
+def _decode_chunk_payload(payload: bytes) -> str:
+    """Decode a chunk payload that may be JSON-encoded (from Rust emit())."""
+    text = payload.decode("utf-8")
+    # Rust emit() JSON-encodes values, so strings arrive as '"chunk-0"'
+    # Try to JSON-decode to unwrap the quotes
+    try:
+        decoded = json.loads(text)
+        if isinstance(decoded, str):
+            return decoded
+        return str(decoded)
+    except (json.JSONDecodeError, UnicodeDecodeError):
+        return text
+
+
 class StreamChunksScenario(Scenario):
     """Test streaming with multiple chunks."""
 
@@ -26,11 +40,10 @@ class StreamChunksScenario(Scenario):
             # Should be streaming response
             assert response.is_streaming(), "Expected streaming response"
 
-            # Collect all chunks
+            # Collect all chunks — each is CBOR-decoded, may contain JSON-encoded strings
             chunks = []
             for chunk in response.chunks:
-                # Each chunk has payload (bytes) attribute
-                chunks.append(chunk.payload.decode())
+                chunks.append(_decode_chunk_payload(chunk.payload))
 
             # Verify we got all chunks in order
             assert len(chunks) >= chunk_count, f"Expected at least {chunk_count} chunks, got {len(chunks)}"
@@ -114,10 +127,10 @@ class StreamOrderingScenario(Scenario):
 
             response = await host.call(TEST_CAPS["stream_chunks"], input_json, "media:json")
 
-            # Collect chunks in order
+            # Collect chunks in order — CBOR-decoded, may be JSON-encoded strings
             chunks = []
             for chunk in response.chunks:
-                chunks.append(chunk.payload.decode())
+                chunks.append(_decode_chunk_payload(chunk.payload))
 
             # Verify ordering
             for i in range(chunk_count):

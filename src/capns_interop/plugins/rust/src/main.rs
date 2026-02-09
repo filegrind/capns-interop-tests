@@ -393,7 +393,7 @@ fn handle_with_status(
         thread::sleep(Duration::from_millis(10));
     }
 
-    emitter.emit(serde_json::json!("completed"))?;
+    emitter.emit_cbor(&ciborium::Value::Bytes(b"completed".to_vec()))?;
     Ok(())
 }
 
@@ -472,9 +472,8 @@ fn handle_nested_call(
 
     // Double again locally
     let final_result = host_result * 2;
-    let response = format!("nested result: {}", final_result);
 
-    emitter.emit(serde_json::json!(response))?;
+    emitter.emit(serde_json::json!(final_result))?;
     Ok(())
 }
 
@@ -493,9 +492,18 @@ fn handle_heartbeat_stress(
         .as_u64()
         .ok_or_else(|| RuntimeError::Handler("Expected number".to_string()))?;
 
-    thread::sleep(Duration::from_millis(duration_ms));
+    // Sleep in small chunks to allow heartbeat processing
+    let chunks = duration_ms / 100;
+    let remainder = duration_ms % 100;
+    for _ in 0..chunks {
+        thread::sleep(Duration::from_millis(100));
+    }
+    if remainder > 0 {
+        thread::sleep(Duration::from_millis(remainder));
+    }
 
-    emitter.emit(serde_json::json!("stress complete"))?;
+    let response = format!("stressed-{}ms", duration_ms);
+    emitter.emit_cbor(&ciborium::Value::Bytes(response.into_bytes()))?;
     Ok(())
 }
 
@@ -529,7 +537,9 @@ fn handle_concurrent_stress(
         results.push(handle.join().unwrap());
     }
 
-    emitter.emit(serde_json::json!({"threads": results}))?;
+    let sum: usize = results.iter().sum();
+    let response = format!("computed-{}", sum);
+    emitter.emit_cbor(&ciborium::Value::Bytes(response.into_bytes()))?;
     Ok(())
 }
 
@@ -561,7 +571,7 @@ fn handle_process_large(
 
     emitter.emit(serde_json::json!({
         "size": payload.len(),
-        "sha256": hash_hex
+        "checksum": hash_hex
     }))?;
     Ok(())
 }
@@ -579,11 +589,11 @@ fn handle_hash_incoming(
     let hash = hasher.finalize();
     let hash_hex = hex::encode(hash);
 
-    emitter.emit(serde_json::json!(hash_hex))?;
+    emitter.emit_cbor(&ciborium::Value::Bytes(hash_hex.into_bytes()))?;
     Ok(())
 }
 
-// Handler: verify_binary - checks if all bytes are in valid range
+// Handler: verify_binary - checks if all 256 byte values are present
 fn handle_verify_binary(
     stream_chunks: Receiver<StreamChunk>,
     emitter: &dyn StreamEmitter,
@@ -591,17 +601,19 @@ fn handle_verify_binary(
 ) -> Result<(), RuntimeError> {
     let payload = collect_payload(stream_chunks);
 
-    // Check if all bytes are in 0-255 range (always true for u8, but simulate validation)
-    let valid = !payload.is_empty();
-
-    // Also check for specific pattern - all bytes should be < 128 for "valid"
     let mut seen = HashSet::new();
     for &byte in &payload {
         seen.insert(byte);
     }
 
-    let result = valid && seen.len() > 0;
-    emitter.emit(serde_json::json!(result))?;
+    if seen.len() == 256 {
+        emitter.emit_cbor(&ciborium::Value::Bytes(b"ok".to_vec()))?;
+    } else {
+        let mut missing: Vec<u8> = (0..=255u8).filter(|b| !seen.contains(b)).collect();
+        missing.sort();
+        let msg = format!("missing byte values: {:?}", missing);
+        emitter.emit_cbor(&ciborium::Value::Bytes(msg.into_bytes()))?;
+    }
     Ok(())
 }
 

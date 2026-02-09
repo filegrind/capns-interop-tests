@@ -171,9 +171,8 @@ def test_chunk_frame_with_stream_id():
     req_id = MessageId.new_uuid()
     stream_id = "chunk-stream"
 
-    # Create chunk with stream_id set
-    frame = Frame.chunk(req_id, 0, b"test data")
-    frame.stream_id = stream_id  # Manually set for protocol v2
+    # Create chunk with stream_id (Protocol v2: stream_id required)
+    frame = Frame.chunk(req_id, stream_id, 0, b"test data")
 
     encoded = encode_frame(frame)
     decoded = decode_frame(encoded)
@@ -186,7 +185,7 @@ def test_all_frame_types_have_correct_values():
     """Verify all FrameType values are correct."""
     assert FrameType.HELLO == 0
     assert FrameType.REQ == 1
-    assert FrameType.RES == 2
+    # RES (2) removed in Protocol v2
     assert FrameType.CHUNK == 3
     assert FrameType.END == 4
     assert FrameType.LOG == 5

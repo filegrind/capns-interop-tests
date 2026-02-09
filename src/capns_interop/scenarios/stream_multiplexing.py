@@ -1,15 +1,17 @@
 """Stream multiplexing test scenarios for Protocol v2.
 
-These scenarios test the STREAM_START and STREAM_END frame types introduced
-in Protocol v2, which enable multiplexed streams within a single request.
+These scenarios verify that Protocol v2 stream multiplexing (STREAM_START,
+CHUNK with stream_id, STREAM_END, END) works correctly end-to-end.
+
+In Protocol v2, ALL requests and responses use stream multiplexing.
+host.call() sends: REQ(empty) + STREAM_START + CHUNK(s) + STREAM_END + END
+and collects: STREAM_START + CHUNK(s) + STREAM_END + END from the plugin.
+
+These scenarios exercise the full stream multiplexing path with various
+payload sizes and types.
 """
 
-import uuid
-from typing import List, Tuple
-
-from capns.cbor_frame import Frame, FrameType, MessageId
-from capns.caller import CapArgumentValue
-
+from .. import TEST_CAPS
 from .base import Scenario, ScenarioResult
 
 
@@ -25,36 +27,19 @@ class SingleStreamScenario(Scenario):
         return "Single stream with STREAM_START + CHUNK + STREAM_END"
 
     async def execute(self, host, plugin) -> ScenarioResult:
-        """Execute single stream scenario.
-
-        Protocol:
-        1. Send REQ with empty payload
-        2. Send STREAM_START with stream_id="stream-1" and media_urn="media:bytes"
-        3. Send CHUNK with stream_id="stream-1" and payload
-        4. Send STREAM_END with stream_id="stream-1"
-        5. Send END
-        6. Expect response
-        """
-
         async def test():
-            # Simple echo that should work with stream multiplexing
-            cap_urn = 'cap:in="media:bytes";op=echo;out="media:bytes"'
             test_data = b"Hello stream multiplexing!"
 
-            arguments = [CapArgumentValue("media:bytes", test_data)]
-            response_chunks = []
+            response = await host.call(TEST_CAPS["echo"], test_data, "media:bytes")
 
-            async for chunk in host.execute_cap(cap_urn, arguments):
-                response_chunks.append(chunk.payload)
-
-            response = b"".join(response_chunks)
-            assert response == test_data, f"Expected {test_data!r}, got {response!r}"
+            output = response.final_payload()
+            assert output == test_data, f"Expected {test_data!r}, got {output!r}"
 
         return await self._timed_execute(test)
 
 
 class MultipleStreamsScenario(Scenario):
-    """Test multiple independent streams in a single request."""
+    """Test that the protocol handles stream metadata correctly."""
 
     @property
     def name(self) -> str:
@@ -62,36 +47,22 @@ class MultipleStreamsScenario(Scenario):
 
     @property
     def description(self) -> str:
-        return "Multiple independent streams in one request"
+        return "Protocol correctly tracks stream state across request"
 
     async def execute(self, host, plugin) -> ScenarioResult:
-        """Execute multiple streams scenario.
-
-        Note: This scenario tests the *capability* to handle multiple streams,
-        but in practice most plugins will return a single response stream.
-        The test verifies the protocol can handle it, even if unused.
-        """
-
         async def test():
-            # Use a simple cap that will respond with one stream
-            cap_urn = 'cap:in="media:bytes";op=echo;out="media:bytes"'
             test_data = b"Multiple streams test"
 
-            arguments = [CapArgumentValue("media:bytes", test_data)]
-            response_chunks = []
+            response = await host.call(TEST_CAPS["echo"], test_data, "media:bytes")
 
-            async for chunk in host.execute_cap(cap_urn, arguments):
-                response_chunks.append(chunk.payload)
-
-            response = b"".join(response_chunks)
-            # The plugin should handle the protocol correctly even if it only uses one stream
-            assert len(response) > 0, "Expected non-empty response"
+            output = response.final_payload()
+            assert output == test_data, f"Expected {test_data!r}, got {output!r}"
 
         return await self._timed_execute(test)
 
 
 class EmptyStreamScenario(Scenario):
-    """Test stream with no chunks (STREAM_START + STREAM_END immediately)."""
+    """Test stream with empty payload (STREAM_START + STREAM_END without data CHUNKs)."""
 
     @property
     def name(self) -> str:
@@ -102,27 +73,19 @@ class EmptyStreamScenario(Scenario):
         return "Empty stream with STREAM_START immediately followed by STREAM_END"
 
     async def execute(self, host, plugin) -> ScenarioResult:
-        """Execute empty stream scenario."""
-
         async def test():
-            # Echo empty data
-            cap_urn = 'cap:in="media:bytes";op=echo;out="media:bytes"'
             test_data = b""
 
-            arguments = [CapArgumentValue("media:bytes", test_data)]
-            response_chunks = []
+            response = await host.call(TEST_CAPS["echo"], test_data, "media:bytes")
 
-            async for chunk in host.execute_cap(cap_urn, arguments):
-                response_chunks.append(chunk.payload)
-
-            response = b"".join(response_chunks)
-            assert response == test_data, f"Expected empty, got {response!r}"
+            output = response.final_payload()
+            assert output == test_data, f"Expected empty, got {output!r}"
 
         return await self._timed_execute(test)
 
 
 class InterleavedStreamsScenario(Scenario):
-    """Test interleaved chunks from multiple streams."""
+    """Test binary data integrity through stream multiplexing."""
 
     @property
     def name(self) -> str:
@@ -130,34 +93,22 @@ class InterleavedStreamsScenario(Scenario):
 
     @property
     def description(self) -> str:
-        return "Interleaved chunks from multiple streams"
+        return "Binary data integrity through stream multiplexing"
 
     async def execute(self, host, plugin) -> ScenarioResult:
-        """Execute interleaved streams scenario.
-
-        Most plugins won't actually interleave streams, but the protocol
-        supports it. This tests basic stream handling.
-        """
-
         async def test():
-            # Use binary echo to verify correct handling
-            cap_urn = 'cap:in="media:bytes";op=binary_echo;out="media:bytes"'
-            test_data = bytes(range(256))  # All byte values
+            test_data = bytes(range(256))
 
-            arguments = [CapArgumentValue("media:bytes", test_data)]
-            response_chunks = []
+            response = await host.call(TEST_CAPS["binary_echo"], test_data, "media:bytes")
 
-            async for chunk in host.execute_cap(cap_urn, arguments):
-                response_chunks.append(chunk.payload)
-
-            response = b"".join(response_chunks)
-            assert response == test_data, "Binary data corrupted"
+            output = response.final_payload()
+            assert output == test_data, "Binary data corrupted through stream multiplexing"
 
         return await self._timed_execute(test)
 
 
 class StreamErrorHandlingScenario(Scenario):
-    """Test error handling for stream protocol violations."""
+    """Test that stream protocol completes cleanly without errors."""
 
     @property
     def name(self) -> str:
@@ -165,41 +116,22 @@ class StreamErrorHandlingScenario(Scenario):
 
     @property
     def description(self) -> str:
-        return "Proper error handling for stream protocol violations"
+        return "Stream protocol completes cleanly without errors"
 
     async def execute(self, host, plugin) -> ScenarioResult:
-        """Execute stream error handling scenario.
-
-        Tests that plugins correctly handle and report errors in valid ways.
-        We test with a cap that might trigger errors, ensuring the protocol
-        remains stable.
-        """
-
         async def test():
-            # Test with a cap that should work correctly
-            cap_urn = 'cap:in="media:bytes";op=echo;out="media:bytes"'
             test_data = b"Error handling test"
 
-            arguments = [CapArgumentValue("media:bytes", test_data)]
+            response = await host.call(TEST_CAPS["echo"], test_data, "media:bytes")
 
-            try:
-                response_chunks = []
-                async for chunk in host.execute_cap(cap_urn, arguments):
-                    response_chunks.append(chunk.payload)
-
-                response = b"".join(response_chunks)
-                # Should succeed without errors
-                assert response == test_data
-            except Exception as e:
-                # If there's an error, it should be a proper protocol error
-                # not a crash or hang
-                raise AssertionError(f"Unexpected error: {e}")
+            output = response.final_payload()
+            assert output == test_data, f"Expected {test_data!r}, got {output!r}"
 
         return await self._timed_execute(test)
 
 
 class LargeMultiStreamScenario(Scenario):
-    """Test large payloads across multiple streams."""
+    """Test large payloads through stream multiplexing (triggers multi-chunk transfer)."""
 
     @property
     def name(self) -> str:
@@ -210,29 +142,21 @@ class LargeMultiStreamScenario(Scenario):
         return "Large payloads (1MB) with stream multiplexing"
 
     async def execute(self, host, plugin) -> ScenarioResult:
-        """Execute large multi-stream scenario."""
-
         async def test():
-            # 1MB of data
             pattern = b"ABCDEFGHIJ" * 1024  # 10KB pattern
             test_data = pattern * 100  # 1MB total
 
-            cap_urn = 'cap:in="media:bytes";op=echo;out="media:bytes"'
-            arguments = [CapArgumentValue("media:bytes", test_data)]
+            response = await host.call(TEST_CAPS["echo"], test_data, "media:bytes")
 
-            response_chunks = []
-            async for chunk in host.execute_cap(cap_urn, arguments):
-                response_chunks.append(chunk.payload)
-
-            response = b"".join(response_chunks)
-            assert len(response) == len(test_data), f"Size mismatch: {len(response)} != {len(test_data)}"
-            assert response == test_data, "Data corrupted during streaming"
+            output = response.final_payload()
+            assert len(output) == len(test_data), f"Size mismatch: {len(output)} != {len(test_data)}"
+            assert output == test_data, "Data corrupted during streaming"
 
         return await self._timed_execute(test)
 
 
 class StreamOrderPreservationScenario(Scenario):
-    """Test that stream ordering is preserved across chunks."""
+    """Test that byte ordering is preserved through stream chunking."""
 
     @property
     def name(self) -> str:
@@ -243,20 +167,12 @@ class StreamOrderPreservationScenario(Scenario):
         return "Stream chunk ordering is preserved"
 
     async def execute(self, host, plugin) -> ScenarioResult:
-        """Execute stream order preservation scenario."""
-
         async def test():
-            # Create data with clear ordering
-            test_data = b"".join(bytes([i % 256]) for i in range(10000))
+            test_data = bytes([i % 256 for i in range(10000)])
 
-            cap_urn = 'cap:in="media:bytes";op=echo;out="media:bytes"'
-            arguments = [CapArgumentValue("media:bytes", test_data)]
+            response = await host.call(TEST_CAPS["binary_echo"], test_data, "media:bytes")
 
-            response_chunks = []
-            async for chunk in host.execute_cap(cap_urn, arguments):
-                response_chunks.append(chunk.payload)
-
-            response = b"".join(response_chunks)
-            assert response == test_data, "Chunk ordering violated"
+            output = response.final_payload()
+            assert output == test_data, "Chunk ordering violated"
 
         return await self._timed_execute(test)
