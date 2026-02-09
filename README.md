@@ -4,13 +4,15 @@ Comprehensive cross-language integration testing for the capns ecosystem.
 
 ## Overview
 
-Tests all viable capns implementations (Rust, Python, Swift) against each other in both host and plugin roles, ensuring bulletproof protocol compliance across:
+Tests all viable capns implementations (Rust, Python, Swift, Go) against each other in both host and plugin roles, ensuring bulletproof protocol compliance across:
 - Simple request/response
 - Streaming responses
+- Stream multiplexing
 - Heartbeat mechanisms
 - Bidirectional invocations
 - Error handling
 - Performance benchmarks
+
 
 ## Quick Start
 
