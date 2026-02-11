@@ -1,0 +1,13 @@
+[package]
+name = "capns-interop-relay-host-rust"
+version = "1.0.0"
+edition = "2021"
+
+[[bin]]
+name = "capns-interop-relay-host-rust"
+path = "src/main.rs"
+
+[dependencies]
+capns = { path = "../../../../../capns" }
+tokio = { version = "1.0", features = ["full"] }
+clap = { version = "4.0", features = ["derive"] }
