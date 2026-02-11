@@ -10,8 +10,7 @@
 ///     stdin/stdout carry CBOR frames including relay-specific types.
 ///     RelaySlave sits between stdin/stdout and AsyncPluginHost.
 ///     Initial RelayNotify sent on startup.
-use std::io::{Read, Write};
-use std::os::unix::io::FromRawFd;
+use std::os::unix::io::{FromRawFd, IntoRawFd};
 use std::process::Command;
 
 use capns::async_plugin_host::AsyncPluginHost;
@@ -110,8 +109,12 @@ async fn main() {
         let (stdout, stdin, child) = spawn_plugin(plugin_path);
         children.push(child);
 
-        let plugin_read = tokio::fs::File::from_std(stdout.into());
-        let plugin_write = tokio::fs::File::from_std(stdin.into());
+        let plugin_read = tokio::fs::File::from_std(unsafe {
+            std::fs::File::from_raw_fd(stdout.into_raw_fd())
+        });
+        let plugin_write = tokio::fs::File::from_std(unsafe {
+            std::fs::File::from_raw_fd(stdin.into_raw_fd())
+        });
 
         if let Err(e) = host.attach_plugin(plugin_read, plugin_write).await {
             eprintln!("Failed to attach {}: {}", plugin_path, e);
@@ -154,22 +157,23 @@ async fn run_with_relay(mut host: AsyncPluginHost) {
     let limits = Limits::default();
 
     // Run host in a tokio task with async pipe ends
-    let host_relay_read = tokio::fs::File::from_std(a_read.into());
-    let host_relay_write = tokio::fs::File::from_std(b_write.into());
+    let host_relay_read = tokio::fs::File::from_std(a_read);
+    let host_relay_write = tokio::fs::File::from_std(b_write);
 
     let host_handle = tokio::spawn(async move {
         host.run(host_relay_read, host_relay_write, || Vec::new()).await
     });
 
-    // Run slave in a blocking thread with sync pipe ends + sync stdin/stdout
+    // Run slave in a blocking thread with sync pipe ends + owned stdin/stdout.
+    // Use raw fd to get owned File handles (stdin.lock() is not Send).
+    let stdin_file = unsafe { std::fs::File::from_raw_fd(0) };
+    let stdout_file = unsafe { std::fs::File::from_raw_fd(1) };
+
     let slave_handle = tokio::task::spawn_blocking(move || {
-        let stdin = std::io::stdin();
-        let stdout = std::io::stdout();
+        let slave = RelaySlave::new(b_read, a_write);
 
-        let mut slave = RelaySlave::new(b_read, a_write);
-
-        let socket_reader = FrameReader::new(stdin.lock());
-        let socket_writer = FrameWriter::new(stdout.lock());
+        let socket_reader = FrameReader::new(std::io::BufReader::new(stdin_file));
+        let socket_writer = FrameWriter::new(std::io::BufWriter::new(stdout_file));
 
         let result = slave.run(
             socket_reader,

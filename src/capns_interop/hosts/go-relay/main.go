@@ -171,7 +171,7 @@ func runWithRelay(host *capns.PluginHost) {
 	if caps == nil {
 		caps = []byte("[]")
 	}
-	limits := cbor.Limits{}
+	limits := cbor.DefaultLimits()
 
 	var wg sync.WaitGroup
 	var hostErr error

@@ -146,6 +146,33 @@ def throughput_collector(project_root):
     _print_throughput_matrix(results)
 
 
+@pytest.fixture(scope="session")
+def relay_host_binaries(project_root):
+    """Return paths to built relay host binaries, auto-building if needed."""
+    artifacts = project_root / "artifacts" / "build"
+    hosts_src = project_root / "src" / "capns_interop" / "hosts"
+
+    binaries = {
+        "rust": artifacts / "rust-relay-host" / "capns-interop-relay-host-rust",
+        "python": hosts_src / "python" / "relay_host.py",
+        "swift": artifacts / "swift-relay-host" / "capns-interop-relay-host-swift",
+        "go": artifacts / "go-relay-host" / "capns-interop-relay-host-go",
+    }
+
+    targets = {
+        "rust": ("build-rust-relay-host", hosts_src / "rust-relay"),
+        "swift": ("build-swift-relay-host", hosts_src / "swift-relay"),
+        "go": ("build-go-relay-host", hosts_src / "go-relay"),
+    }
+
+    for lang, (target, source_dir) in targets.items():
+        if _needs_build(binaries[lang], source_dir):
+            print(f"\nAuto-building {lang} relay host...")
+            _run_make(project_root, target)
+
+    return binaries
+
+
 @pytest.fixture
 def rust_plugin(plugin_binaries):
     """Return path to Rust plugin."""

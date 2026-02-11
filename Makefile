@@ -1,15 +1,19 @@
-.PHONY: all plugins hosts build-rust build-python build-swift build-go \
+.PHONY: all plugins hosts relay-hosts build-rust build-python build-swift build-go \
        build-rust-host build-python-host build-swift-host build-go-host \
-       clean test test-matrix test-quick test-throughput
+       build-rust-relay-host build-python-relay-host build-swift-relay-host build-go-relay-host \
+       clean test test-matrix test-quick test-throughput test-relay test-multi-host
 
 # Build everything
-all: plugins hosts
+all: plugins hosts relay-hosts
 
 # Build all plugins
 plugins: build-rust build-python build-swift build-go
 
 # Build all hosts
 hosts: build-rust-host build-python-host build-swift-host build-go-host
+
+# Build all relay hosts
+relay-hosts: build-rust-relay-host build-python-relay-host build-swift-relay-host build-go-relay-host
 
 # --- Plugins ---
 
@@ -61,6 +65,30 @@ build-go-host:
 	mkdir -p artifacts/build/go-host
 	cp src/capns_interop/hosts/go/capns-interop-host-go artifacts/build/go-host/
 
+# --- Relay Hosts ---
+
+build-rust-relay-host:
+	@echo "Building Rust relay host..."
+	cd src/capns_interop/hosts/rust-relay && cargo build --release
+	mkdir -p artifacts/build/rust-relay-host
+	cp src/capns_interop/hosts/rust-relay/target/release/capns-interop-relay-host-rust artifacts/build/rust-relay-host/
+
+build-python-relay-host:
+	@echo "Preparing Python relay host..."
+	@# Python relay host runs from source — no build needed
+
+build-swift-relay-host:
+	@echo "Building Swift relay host..."
+	cd src/capns_interop/hosts/swift-relay && swift build -c release
+	mkdir -p artifacts/build/swift-relay-host
+	cp src/capns_interop/hosts/swift-relay/.build/release/capns-interop-relay-host-swift artifacts/build/swift-relay-host/
+
+build-go-relay-host:
+	@echo "Building Go relay host..."
+	cd src/capns_interop/hosts/go-relay && go build -o capns-interop-relay-host-go .
+	mkdir -p artifacts/build/go-relay-host
+	cp src/capns_interop/hosts/go-relay/capns-interop-relay-host-go artifacts/build/go-relay-host/
+
 # --- Clean ---
 
 clean:
@@ -82,6 +110,12 @@ test-matrix: all
 
 test-throughput: all
 	PYTHONPATH=src pytest tests/test_throughput_matrix.py -v -s --timeout=120
+
+test-relay: all
+	PYTHONPATH=src pytest tests/test_relay_interop.py -v --timeout=60
+
+test-multi-host: all
+	PYTHONPATH=src pytest tests/test_multi_host_interop.py -v --timeout=60
 
 test-quick:
 	PYTHONPATH=src pytest tests/ -v

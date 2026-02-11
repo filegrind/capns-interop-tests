@@ -110,8 +110,8 @@ def run_with_relay(host: PluginHost):
     slave_local_reader = FrameReader(host_to_slave_read)
     slave_local_writer = FrameWriter(slave_to_host_write)
 
-    caps_data = host.capabilities or b"[]"
-    limits = Limits()
+    caps_data = host.capabilities() or b"[]"
+    limits = Limits.default()
 
     host_error = [None]
 
