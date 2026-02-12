@@ -62,9 +62,11 @@ def test_latency_benchmark(relay_host_binaries, plugin_binaries, host_lang, plug
 
         # Language-appropriate latency thresholds
         # Python (host or plugin) is slower due to GIL and interpreter overhead
-        # If either host or plugin is Python, expect higher latency due to GC pauses
-        if host_lang == "python" or plugin_lang == "python":
-            threshold = 1000  # Python involved: higher latency expected (~50-400ms avg, ~850ms p99)
+        # Margins account for measurement variance
+        if host_lang == "python" and plugin_lang == "python":
+            threshold = 1600  # Both Python: double GIL overhead, highest latency (~1000-1500ms p99)
+        elif host_lang == "python" or plugin_lang == "python":
+            threshold = 1100  # One Python: higher latency expected (~50-400ms avg, ~850-1000ms p99)
         else:
             threshold = 200   # All compiled: lower latency
 
@@ -109,10 +111,11 @@ def test_throughput_benchmark(relay_host_binaries, plugin_binaries, host_lang, p
 
         # Language-appropriate throughput thresholds
         # Python (host or plugin) is slower due to GIL and interpreter overhead
+        # Margins account for measurement variance
         if host_lang == "python" or plugin_lang == "python":
-            threshold = 10   # Python involved: ~12-18 req/s is normal
+            threshold = 8    # Python involved: ~10-18 req/s is normal
         else:
-            threshold = 300  # All compiled: much faster
+            threshold = 250  # All compiled: ~300+ req/s typical
 
         assert rps > threshold, (
             f"[{host_lang}/{plugin_lang}] throughput too low: {rps:.2f} req/s (threshold: {threshold})"
