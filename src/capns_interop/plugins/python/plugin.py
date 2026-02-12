@@ -427,7 +427,7 @@ def handle_with_status(frames: queue.Queue, emitter, peer):
 
     for i in range(steps):
         status = f"step {i}"
-        emitter.emit_log(status)
+        emitter.emit_log("processing", status)
         time.sleep(0.01)
 
     emitter.emit_cbor(b"completed")
