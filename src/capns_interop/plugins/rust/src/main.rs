@@ -21,26 +21,34 @@ struct ValueRequest {
 // For Value::Bytes, extract and concatenate the bytes
 // For Value::Text, extract and concatenate as UTF-8 bytes
 fn collect_payload(frames: Receiver<Frame>) -> ciborium::Value {
+    eprintln!("[DEBUG] collect_payload: starting");
     let mut chunks = Vec::new();
     for frame in frames {
         match frame.frame_type {
             FrameType::Chunk => {
                 if let Some(payload) = frame.payload {
+                    eprintln!("[DEBUG] collect_payload: received CHUNK, size={}", payload.len());
                     // Each CHUNK payload MUST be valid CBOR - decode it
                     let value: ciborium::Value = ciborium::from_reader(&payload[..])
                         .expect("CHUNK payload must be valid CBOR");
+                    eprintln!("[DEBUG] collect_payload: decoded CBOR value type: {:?}", std::mem::discriminant(&value));
                     chunks.push(value);
                 }
             }
-            FrameType::End => break,
+            FrameType::End => {
+                eprintln!("[DEBUG] collect_payload: received END");
+                break;
+            }
             _ => {} // Ignore other frame types
         }
     }
 
     // Reconstruct value from chunks
-    if chunks.is_empty() {
+    let result = if chunks.is_empty() {
+        eprintln!("[DEBUG] collect_payload: no chunks, returning Null");
         ciborium::Value::Null
     } else if chunks.len() == 1 {
+        eprintln!("[DEBUG] collect_payload: single chunk, returning as-is");
         chunks.into_iter().next().unwrap()
     } else {
         // Multiple chunks - concatenate bytes/text or collect as array
@@ -64,11 +72,14 @@ fn collect_payload(frames: Receiver<Frame>) -> ciborium::Value {
                 ciborium::Value::Text(accumulated)
             }
             _ => {
+                eprintln!("[DEBUG] collect_payload: multiple chunks of other type, collecting as array");
                 // For other types (Map, Array, Integer, etc.), collect as array
                 ciborium::Value::Array(chunks)
             }
         }
-    }
+    };
+    eprintln!("[DEBUG] collect_payload: returning value");
+    result
 }
 
 // Helper: Collect peer response as CBOR value
@@ -76,34 +87,49 @@ fn collect_payload(frames: Receiver<Frame>) -> ciborium::Value {
 // For simple values (Bytes/Text/Integer), there's typically one chunk
 // For arrays/maps, multiple chunks are combined
 fn collect_peer_response(peer_frames: Receiver<Frame>) -> Result<ciborium::Value, RuntimeError> {
+    eprintln!("[DEBUG] collect_peer_response: starting");
     let mut chunks = Vec::new();
     for frame in peer_frames {
+        eprintln!("[DEBUG] collect_peer_response: received frame type={:?}", frame.frame_type);
         match frame.frame_type {
             FrameType::Chunk => {
                 if let Some(payload) = frame.payload {
+                    eprintln!("[DEBUG] collect_peer_response: CHUNK size={}", payload.len());
                     // Each CHUNK payload MUST be valid CBOR - decode it
                     let value: ciborium::Value = ciborium::from_reader(&payload[..])
                         .map_err(|e| RuntimeError::Deserialize(format!("Invalid CBOR in CHUNK: {}", e)))?;
+                    eprintln!("[DEBUG] collect_peer_response: decoded CBOR value type={:?}", std::mem::discriminant(&value));
                     chunks.push(value);
                 }
             }
-            FrameType::End => break,
+            FrameType::End => {
+                eprintln!("[DEBUG] collect_peer_response: received END");
+                break;
+            }
             FrameType::Err => {
                 let code = frame.error_code().unwrap_or("UNKNOWN");
                 let message = frame.error_message().unwrap_or("Unknown error");
+                eprintln!("[DEBUG] collect_peer_response: ERROR frame - [{}] {}", code, message);
                 return Err(RuntimeError::PeerRequest(format!("[{}] {}", code, message)));
             }
-            _ => {}
+            _ => {
+                eprintln!("[DEBUG] collect_peer_response: ignoring frame type={:?}", frame.frame_type);
+            }
         }
     }
 
     // Reconstruct value from chunks
+    eprintln!("[DEBUG] collect_peer_response: reconstructing from {} chunks", chunks.len());
     if chunks.is_empty() {
+        eprintln!("[DEBUG] collect_peer_response: ERROR - no chunks!");
         return Err(RuntimeError::Deserialize("No chunks received".to_string()));
     } else if chunks.len() == 1 {
+        eprintln!("[DEBUG] collect_peer_response: single chunk, returning as-is");
         // Single chunk - return as-is
         Ok(chunks.into_iter().next().unwrap())
     } else {
+        eprintln!("[DEBUG] collect_peer_response: multiple chunks, reconstructing...");
+
         // Multiple chunks - concatenate Bytes/Text, or collect Array elements
         let first = &chunks[0];
         match first {
@@ -383,19 +409,38 @@ fn cbor_to_bytes(value: &ciborium::Value) -> Result<Vec<u8>, RuntimeError> {
 
 // Helper: Extract JSON bytes from CBOR Map
 fn cbor_map_to_json_bytes(value: &ciborium::Value) -> Result<Vec<u8>, RuntimeError> {
+    eprintln!("[DEBUG] cbor_map_to_json_bytes: input value type: {:?}", std::mem::discriminant(value));
     match value {
+        ciborium::Value::Bytes(bytes) => {
+            eprintln!("[DEBUG] cbor_map_to_json_bytes: received Bytes (already JSON), returning as-is");
+            // Already JSON bytes - return directly
+            Ok(bytes.clone())
+        }
+        ciborium::Value::Text(text) => {
+            eprintln!("[DEBUG] cbor_map_to_json_bytes: received Text (JSON string), converting to bytes");
+            // JSON as text - convert to bytes
+            Ok(text.as_bytes().to_vec())
+        }
         ciborium::Value::Map(_) => {
+            eprintln!("[DEBUG] cbor_map_to_json_bytes: converting CBOR Map to JSON");
             // Serialize CBOR map to JSON
             let mut json_bytes = Vec::new();
             ciborium::into_writer(value, &mut json_bytes)
                 .map_err(|e| RuntimeError::Serialize(format!("Failed to serialize CBOR: {}", e)))?;
+            eprintln!("[DEBUG] cbor_map_to_json_bytes: serialized to {} bytes", json_bytes.len());
             // Re-read as serde_json::Value, then write as JSON
             let json_val: serde_json::Value = ciborium::from_reader(&json_bytes[..])
                 .map_err(|e| RuntimeError::Deserialize(format!("Failed to read CBOR as JSON: {}", e)))?;
-            serde_json::to_vec(&json_val)
-                .map_err(|e| RuntimeError::Serialize(format!("Failed to serialize JSON: {}", e)))
+            eprintln!("[DEBUG] cbor_map_to_json_bytes: converted to JSON value");
+            let result = serde_json::to_vec(&json_val)
+                .map_err(|e| RuntimeError::Serialize(format!("Failed to serialize JSON: {}", e)))?;
+            eprintln!("[DEBUG] cbor_map_to_json_bytes: final JSON is {} bytes", result.len());
+            Ok(result)
         }
-        _ => Err(RuntimeError::Handler(format!("Expected CBOR map, got {:?}", value))),
+        _ => {
+            eprintln!("[DEBUG] cbor_map_to_json_bytes: ERROR - unexpected type!");
+            Err(RuntimeError::Handler(format!("Expected CBOR Bytes, Text, or Map, got {:?}", value)))
+        }
     }
 }
 
@@ -417,20 +462,27 @@ fn handle_double(
     emitter: &dyn StreamEmitter,
     _peer: &dyn PeerInvoker,
 ) -> Result<(), RuntimeError> {
+    eprintln!("[DEBUG] handle_double: ENTRY");
     let cbor_value = collect_payload(frames);
+    eprintln!("[DEBUG] handle_double: collected payload");
     let json_bytes = cbor_map_to_json_bytes(&cbor_value)?;
+    eprintln!("[DEBUG] handle_double: converted to JSON bytes");
     let req: ValueRequest = serde_json::from_slice(&json_bytes)
         .map_err(|e| RuntimeError::Handler(format!("Invalid JSON: {}", e)))?;
+    eprintln!("[DEBUG] handle_double: parsed ValueRequest");
 
     let value = req
         .value
         .as_u64()
         .ok_or_else(|| RuntimeError::Handler("Expected number".to_string()))?;
+    eprintln!("[DEBUG] handle_double: extracted value={}", value);
 
     let result = value * 2;
+    eprintln!("[DEBUG] handle_double: computed result={}", result);
 
     // Return as CBOR integer (per protocol: int sent as single chunk)
     emitter.emit_cbor(&ciborium::Value::Integer(result.into()))?;
+    eprintln!("[DEBUG] handle_double: emitted result, EXIT");
     Ok(())
 }
 
@@ -594,38 +646,53 @@ fn handle_nested_call(
     emitter: &dyn StreamEmitter,
     peer: &dyn PeerInvoker,
 ) -> Result<(), RuntimeError> {
+    eprintln!("[DEBUG] handle_nested_call: ENTRY");
     let cbor_value = collect_payload(frames);
+    eprintln!("[DEBUG] handle_nested_call: collected payload");
     let json_bytes = cbor_map_to_json_bytes(&cbor_value)?;
+    eprintln!("[DEBUG] handle_nested_call: converted to JSON bytes");
     let req: ValueRequest = serde_json::from_slice(&json_bytes)
         .map_err(|e| RuntimeError::Handler(format!("Invalid JSON: {}", e)))?;
+    eprintln!("[DEBUG] handle_nested_call: parsed ValueRequest");
 
     let value = req
         .value
         .as_u64()
         .ok_or_else(|| RuntimeError::Handler("Expected number".to_string()))?;
+    eprintln!("[DEBUG] handle_nested_call: extracted value={}", value);
 
     // Call host's double capability
     let input = serde_json::to_vec(&serde_json::json!({"value": value}))
         .map_err(|e| RuntimeError::Serialize(e.to_string()))?;
+    eprintln!("[DEBUG] handle_nested_call: created peer request JSON");
     let args = vec![CapArgumentValue::new("media:order-value;json;textable;form=map", input)];
 
+    eprintln!("[DEBUG] handle_nested_call: invoking peer...");
     let peer_frames = peer.invoke(r#"cap:in=*;op=double;out=*"#, &args)?;
+    eprintln!("[DEBUG] handle_nested_call: peer invoked, collecting response...");
 
     // Collect and decode peer response
     let cbor_value = collect_peer_response(peer_frames)?;
+    eprintln!("[DEBUG] handle_nested_call: peer response collected");
 
     let host_result = match cbor_value {
         ciborium::Value::Integer(n) => {
             let val: i128 = n.into();
+            eprintln!("[DEBUG] handle_nested_call: peer returned integer={}", val);
             val as u64
         }
-        _ => return Err(RuntimeError::Deserialize("Expected integer from double".to_string())),
+        _ => {
+            eprintln!("[DEBUG] handle_nested_call: ERROR - peer didn't return integer, got {:?}", std::mem::discriminant(&cbor_value));
+            return Err(RuntimeError::Deserialize("Expected integer from double".to_string()));
+        }
     };
 
     // Double again locally
     let final_result = host_result * 2;
+    eprintln!("[DEBUG] handle_nested_call: final result={}", final_result);
 
     emitter.emit_cbor(&ciborium::Value::Integer(final_result.into()))?;
+    eprintln!("[DEBUG] handle_nested_call: emitted result, EXIT");
     Ok(())
 }
 

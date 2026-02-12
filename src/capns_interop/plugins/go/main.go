@@ -13,12 +13,11 @@ import (
 	"github.com/filegrind/capns-go/cbor"
 )
 
-// collectPayload reads all CHUNK frames, decodes each as CBOR, and accumulates bytes
+// collectPayload reads all CHUNK frames, decodes each as CBOR, and returns the reconstructed value
 // PROTOCOL: Each CHUNK payload is a complete, independently decodable CBOR value
-// For []byte values, extract and concatenate the bytes
-// For string values, extract and concatenate as UTF-8 bytes
-func collectPayload(frames <-chan cbor.Frame) []byte {
-	var accumulated []byte
+// Returns the decoded CBOR value ([]byte, string, map[string]interface{}, []interface{}, etc.)
+func collectPayload(frames <-chan cbor.Frame) interface{} {
+	var chunks []interface{}
 	for frame := range frames {
 		switch frame.FrameType {
 		case cbor.FrameTypeChunk:
@@ -28,22 +27,43 @@ func collectPayload(frames <-chan cbor.Frame) []byte {
 				if err := cborlib.Unmarshal(frame.Payload, &value); err != nil {
 					panic(fmt.Sprintf("CHUNK payload must be valid CBOR: %v", err))
 				}
-
-				// Extract bytes from CBOR value
-				switch v := value.(type) {
-				case []byte:
-					accumulated = append(accumulated, v...)
-				case string:
-					accumulated = append(accumulated, []byte(v)...)
-				default:
-					panic(fmt.Sprintf("Unexpected CBOR type in CHUNK: expected []byte or string, got %T", v))
-				}
+				chunks = append(chunks, value)
 			}
 		case cbor.FrameTypeEnd:
-			return accumulated
+			goto reconstruct
 		}
 	}
-	return accumulated
+
+reconstruct:
+	// Reconstruct value from chunks
+	if len(chunks) == 0 {
+		return nil
+	} else if len(chunks) == 1 {
+		return chunks[0]
+	} else {
+		// Multiple chunks - concatenate bytes/strings or collect as array
+		switch chunks[0].(type) {
+		case []byte:
+			var accumulated []byte
+			for _, chunk := range chunks {
+				if b, ok := chunk.([]byte); ok {
+					accumulated = append(accumulated, b...)
+				}
+			}
+			return accumulated
+		case string:
+			var accumulated string
+			for _, chunk := range chunks {
+				if s, ok := chunk.(string); ok {
+					accumulated += s
+				}
+			}
+			return accumulated
+		default:
+			// For other types (map, int, etc.), return as array
+			return chunks
+		}
+	}
 }
 
 // collectPeerResponse reads peer response frames, decodes each CHUNK as CBOR, and reconstructs value
@@ -115,6 +135,25 @@ reconstruct:
 			return chunks, nil
 		}
 	}
+}
+
+// cborValueToBytes converts a CBOR value to bytes for handlers expecting bytes
+func cborValueToBytes(value interface{}) ([]byte, error) {
+	switch v := value.(type) {
+	case []byte:
+		return v, nil
+	case string:
+		return []byte(v), nil
+	default:
+		return nil, fmt.Errorf("expected []byte or string, got %T", v)
+	}
+}
+
+// cborMapToJSON converts a CBOR map to JSON bytes
+func cborMapToJSON(value interface{}) ([]byte, error) {
+	// The value is already a Go map/interface{} from CBOR decoding
+	// Just marshal it as JSON
+	return json.Marshal(value)
 }
 
 func buildManifest() *capns.CapManifest {
@@ -283,17 +322,47 @@ type valueRequest struct {
 	Value json.RawMessage `json:"value"`
 }
 
-func parseValueRequest(payload []byte) (valueRequest, error) {
+func parseValueRequest(cborValue interface{}) (valueRequest, error) {
 	var req valueRequest
-	if err := json.Unmarshal(payload, &req); err != nil {
-		return req, fmt.Errorf("invalid JSON: %w", err)
+
+	// cborValue might be a map (CBOR Map) or []byte (CBOR Bytes with JSON)
+	switch v := cborValue.(type) {
+	case map[interface{}]interface{}:
+		// CBOR Map - extract "value" field and marshal to JSON
+		if val, ok := v["value"]; ok {
+			// Marshal the value to JSON bytes
+			valueBytes, err := json.Marshal(val)
+			if err != nil {
+				return req, fmt.Errorf("failed to marshal value: %w", err)
+			}
+			req.Value = json.RawMessage(valueBytes)
+			return req, nil
+		}
+		return req, fmt.Errorf("missing 'value' field in map")
+	case []byte:
+		// JSON bytes - unmarshal
+		if err := json.Unmarshal(v, &req); err != nil {
+			return req, fmt.Errorf("invalid JSON: %w", err)
+		}
+		return req, nil
+	case string:
+		// JSON string - unmarshal
+		if err := json.Unmarshal([]byte(v), &req); err != nil {
+			return req, fmt.Errorf("invalid JSON: %w", err)
+		}
+		return req, nil
+	default:
+		return req, fmt.Errorf("expected map or []byte, got %T", cborValue)
 	}
-	return req, nil
 }
 
 func handleEcho(frames <-chan cbor.Frame, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
-	payload := collectPayload(frames)
-	emitter.EmitCbor(payload)
+	cborValue := collectPayload(frames)
+	payloadBytes, err := cborValueToBytes(cborValue)
+	if err != nil {
+		return err
+	}
+	emitter.EmitCbor(payloadBytes)
 	return nil
 }
 
@@ -340,8 +409,12 @@ func handleStreamChunks(frames <-chan cbor.Frame, emitter capns.StreamEmitter, p
 }
 
 func handleBinaryEcho(frames <-chan cbor.Frame, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
-	payload := collectPayload(frames)
-	emitter.EmitCbor(payload)
+	cborValue := collectPayload(frames)
+	payloadBytes, err := cborValueToBytes(cborValue)
+	if err != nil {
+		return err
+	}
+	emitter.EmitCbor(payloadBytes)
 	return nil
 }
 
@@ -424,10 +497,14 @@ func handleThrowError(frames <-chan cbor.Frame, emitter capns.StreamEmitter, pee
 }
 
 func handlePeerEcho(frames <-chan cbor.Frame, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
-	payload := collectPayload(frames)
-	// Call host's echo capability
+	cborValue := collectPayload(frames)
+	payloadBytes, err := cborValueToBytes(cborValue)
+	if err != nil {
+		return err
+	}
+	// Call host's echo capability with semantic URN
 	args := []capns.CapArgumentValue{
-		capns.NewCapArgumentValue("media:customer-message;textable;form=scalar", payload),
+		capns.NewCapArgumentValue("media:customer-message;textable;form=scalar", payloadBytes),
 	}
 
 	peerFrames, err := peer.Invoke(`cap:in=*;op=echo;out=*`, args)
@@ -436,9 +513,9 @@ func handlePeerEcho(frames <-chan cbor.Frame, emitter capns.StreamEmitter, peer 
 	}
 
 	// Collect and decode peer response
-	cborValue, err := collectPeerResponse(peerFrames)
-	if err != nil {
-		return err
+	cborValue, err2 := collectPeerResponse(peerFrames)
+	if err2 != nil {
+		return err2
 	}
 
 	// Re-emit (consumption → production)
@@ -562,7 +639,11 @@ func handleGetManifest(frames <-chan cbor.Frame, emitter capns.StreamEmitter, pe
 }
 
 func handleProcessLarge(frames <-chan cbor.Frame, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
-	payload := collectPayload(frames)
+	cborValue := collectPayload(frames)
+	payload, err := cborValueToBytes(cborValue)
+	if err != nil {
+		return err
+	}
 	// Calculate size and checksum
 	size := len(payload)
 	hash := sha256.Sum256(payload)
@@ -583,7 +664,11 @@ func handleProcessLarge(frames <-chan cbor.Frame, emitter capns.StreamEmitter, p
 }
 
 func handleHashIncoming(frames <-chan cbor.Frame, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
-	payload := collectPayload(frames)
+	cborValue := collectPayload(frames)
+	payload, err := cborValueToBytes(cborValue)
+	if err != nil {
+		return err
+	}
 	// Calculate SHA256 hash
 	hash := sha256.Sum256(payload)
 	hexHash := hex.EncodeToString(hash[:])
@@ -593,7 +678,11 @@ func handleHashIncoming(frames <-chan cbor.Frame, emitter capns.StreamEmitter, p
 }
 
 func handleVerifyBinary(frames <-chan cbor.Frame, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
-	payload := collectPayload(frames)
+	cborValue := collectPayload(frames)
+	payload, err := cborValueToBytes(cborValue)
+	if err != nil {
+		return err
+	}
 	// Check if all 256 byte values (0x00-0xFF) are present
 	present := make(map[byte]bool)
 	for _, b := range payload {
@@ -612,7 +701,11 @@ func handleVerifyBinary(frames <-chan cbor.Frame, emitter capns.StreamEmitter, p
 }
 
 func handleReadFileInfo(frames <-chan cbor.Frame, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
-	payload := collectPayload(frames)
+	cborValue := collectPayload(frames)
+	payload, err := cborValueToBytes(cborValue)
+	if err != nil {
+		return err
+	}
 	// Payload is already file bytes (auto-converted by runtime from file-path)
 	size := len(payload)
 	hash := sha256.Sum256(payload)

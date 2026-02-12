@@ -445,9 +445,10 @@ def handle_throw_error(frames: queue.Queue, emitter, peer):
 def handle_peer_echo(frames: queue.Queue, emitter, peer):
     """Peer echo - calls host's echo via PeerInvoker."""
     payload = collect_payload(frames)
+    payload_bytes = cbor_value_to_bytes(payload)
 
-    # Call host's echo capability
-    peer_frames = peer.invoke("cap:in=*;op=echo;out=*", [CapArgumentValue("media:customer-message;textable;form=scalar", payload)])
+    # Call host's echo capability with semantic URN
+    peer_frames = peer.invoke("cap:in=*;op=echo;out=*", [CapArgumentValue("media:customer-message;textable;form=scalar", payload_bytes)])
 
     # Collect and decode peer response
     cbor_value = collect_peer_response(peer_frames)
@@ -545,7 +546,8 @@ def handle_process_large(frames: queue.Queue, emitter, peer):
 def handle_hash_incoming(frames: queue.Queue, emitter, peer):
     """Hash incoming - receives large bytes, returns SHA256 hash."""
     payload = collect_payload(frames)
-    checksum = hashlib.sha256(payload).hexdigest()
+    payload_bytes = cbor_value_to_bytes(payload)
+    checksum = hashlib.sha256(payload_bytes).hexdigest()
     result_bytes = checksum.encode('utf-8')
     emitter.emit_cbor(result_bytes)
 
@@ -553,10 +555,11 @@ def handle_hash_incoming(frames: queue.Queue, emitter, peer):
 def handle_verify_binary(frames: queue.Queue, emitter, peer):
     """Verify binary - verifies all 256 byte values present."""
     payload = collect_payload(frames)
+    payload_bytes = cbor_value_to_bytes(payload)
 
     # Count occurrences of each byte value
     byte_counts = [0] * 256
-    for byte in payload:
+    for byte in payload_bytes:
         byte_counts[byte] += 1
 
     # Check all 256 values are present
@@ -577,8 +580,9 @@ def handle_verify_binary(frames: queue.Queue, emitter, peer):
 def handle_read_file_info(frames: queue.Queue, emitter, peer):
     """Read file info - receives file bytes (auto-converted by runtime), returns size and checksum."""
     payload = collect_payload(frames)
-    size = len(payload)
-    checksum = hashlib.sha256(payload).hexdigest()
+    payload_bytes = cbor_value_to_bytes(payload)
+    size = len(payload_bytes)
+    checksum = hashlib.sha256(payload_bytes).hexdigest()
 
     result = {
         "size": size,
