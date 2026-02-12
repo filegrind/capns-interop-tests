@@ -36,7 +36,7 @@ def test_basic_heartbeat(relay_host_binaries, plugin_binaries, host_lang, plugin
         duration_ms = 500
         input_json = json.dumps({"value": duration_ms}).encode()
         req_id = make_req_id()
-        send_request(writer, req_id, TEST_CAPS["heartbeat_stress"], input_json, media_urn="media:json")
+        send_request(writer, req_id, TEST_CAPS["heartbeat_stress"], input_json, media_urn="media:monitoring-duration-ms;json;textable;form=map")
         output, frames = read_response(reader)
 
         if isinstance(output, bytes):
@@ -67,7 +67,7 @@ def test_long_operation_heartbeat(relay_host_binaries, plugin_binaries, host_lan
         duration_ms = 2000
         input_json = json.dumps({"value": duration_ms}).encode()
         req_id = make_req_id()
-        send_request(writer, req_id, TEST_CAPS["heartbeat_stress"], input_json, media_urn="media:json")
+        send_request(writer, req_id, TEST_CAPS["heartbeat_stress"], input_json, media_urn="media:monitoring-duration-ms;json;textable;form=map")
         output, frames = read_response(reader)
 
         if isinstance(output, bytes):
@@ -98,7 +98,7 @@ def test_status_updates(relay_host_binaries, plugin_binaries, host_lang, plugin_
         steps = 5
         input_json = json.dumps({"value": steps}).encode()
         req_id = make_req_id()
-        send_request(writer, req_id, TEST_CAPS["with_status"], input_json, media_urn="media:json")
+        send_request(writer, req_id, TEST_CAPS["with_status"], input_json, media_urn="media:fulfillment-steps;json;textable;form=map")
         output, frames = read_response(reader)
 
         if isinstance(output, bytes):

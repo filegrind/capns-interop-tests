@@ -126,7 +126,7 @@ def test_large_payload_throughput(relay_host_binaries, plugin_binaries, host_lan
 
         req_id = make_req_id()
         start = time.perf_counter()
-        send_request(writer, req_id, TEST_CAPS["generate_large"], input_json, media_urn="media:json")
+        send_request(writer, req_id, TEST_CAPS["generate_large"], input_json, media_urn="media:report-size;json;textable;form=map")
 
         # Collect all chunk data
         # Each CHUNK payload MUST be a complete, independently decodable CBOR value
@@ -182,7 +182,7 @@ def test_concurrent_stress(relay_host_binaries, plugin_binaries, host_lang, plug
         work_units = 100
         input_json = json.dumps({"value": work_units}).encode()
         req_id = make_req_id()
-        send_request(writer, req_id, TEST_CAPS["concurrent_stress"], input_json, media_urn="media:json")
+        send_request(writer, req_id, TEST_CAPS["concurrent_stress"], input_json, media_urn="media:order-batch-size;json;textable;form=map")
         output, frames = read_response(reader)
 
         if isinstance(output, bytes):

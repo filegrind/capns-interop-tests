@@ -37,7 +37,7 @@ def test_throw_error(relay_host_binaries, plugin_binaries, host_lang, plugin_lan
         error_msg = "Test error message"
         input_json = json.dumps({"value": error_msg}).encode()
         req_id = make_req_id()
-        send_request(writer, req_id, TEST_CAPS["throw_error"], input_json, media_urn="media:json")
+        send_request(writer, req_id, TEST_CAPS["throw_error"], input_json, media_urn="media:payment-error;json;textable;form=map")
         _, frames = read_response(reader)
 
         err_frames = [f for f in frames if f.frame_type == FrameType.ERR]
@@ -89,7 +89,7 @@ def test_malformed_payload(relay_host_binaries, plugin_binaries, host_lang, plug
     try:
         malformed_json = b"{invalid json"
         req_id = make_req_id()
-        send_request(writer, req_id, TEST_CAPS["double"], malformed_json, media_urn="media:json")
+        send_request(writer, req_id, TEST_CAPS["double"], malformed_json, media_urn="media:order-value;json;textable;form=map")
         _, frames = read_response(reader)
 
         err_frames = [f for f in frames if f.frame_type == FrameType.ERR]

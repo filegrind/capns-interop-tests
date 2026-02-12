@@ -130,130 +130,130 @@ func buildManifest() *capns.CapManifest {
 		*capns.NewCap(
 			mustBuild(capns.NewCapUrnBuilder().
 				Tag("op", "echo").
-				InSpec("media:string;textable;form=scalar").
-				OutSpec("media:string;textable;form=scalar")),
+				InSpec("media:customer-message;textable;form=scalar").
+				OutSpec("media:customer-message;textable;form=scalar")),
 			"Echo", "echo",
 		),
 		*capns.NewCap(
 			mustBuild(capns.NewCapUrnBuilder().
 				Tag("op", "double").
-				InSpec("media:number;form=scalar").
-				OutSpec("media:number;form=scalar")),
+				InSpec("media:order-value;json;textable;form=map").
+				OutSpec("media:loyalty-points;integer;textable;numeric;form=scalar")),
 			"Double", "double",
 		),
 		*capns.NewCap(
 			mustBuild(capns.NewCapUrnBuilder().
 				Tag("op", "stream_chunks").
-				InSpec("media:number;form=scalar").
-				OutSpec("media:string;textable;streamable")),
+				InSpec("media:update-count;json;textable;form=map").
+				OutSpec("media:order-updates;textable")),
 			"Stream Chunks", "stream_chunks",
 		),
 		*capns.NewCap(
 			mustBuild(capns.NewCapUrnBuilder().
 				Tag("op", "binary_echo").
-				InSpec("media:bytes").
-				OutSpec("media:bytes")),
+				InSpec("media:product-image;bytes").
+				OutSpec("media:product-image;bytes")),
 			"Binary Echo", "binary_echo",
 		),
 		*capns.NewCap(
 			mustBuild(capns.NewCapUrnBuilder().
 				Tag("op", "slow_response").
-				InSpec("media:number;form=scalar").
-				OutSpec("media:string;textable;form=scalar")),
+				InSpec("media:payment-delay-ms;json;textable;form=map").
+				OutSpec("media:payment-result;textable;form=scalar")),
 			"Slow Response", "slow_response",
 		),
 		*capns.NewCap(
 			mustBuild(capns.NewCapUrnBuilder().
 				Tag("op", "generate_large").
-				InSpec("media:number;form=scalar").
-				OutSpec("media:bytes")),
+				InSpec("media:report-size;json;textable;form=map").
+				OutSpec("media:sales-report;bytes")),
 			"Generate Large", "generate_large",
 		),
 		*capns.NewCap(
 			mustBuild(capns.NewCapUrnBuilder().
 				Tag("op", "with_status").
-				InSpec("media:number;form=scalar").
-				OutSpec("media:string;textable;form=scalar")),
+				InSpec("media:fulfillment-steps;json;textable;form=map").
+				OutSpec("media:fulfillment-status;textable;form=scalar")),
 			"With Status", "with_status",
 		),
 		*capns.NewCap(
 			mustBuild(capns.NewCapUrnBuilder().
 				Tag("op", "throw_error").
-				InSpec("media:string;textable;form=scalar").
+				InSpec("media:payment-error;json;textable;form=map").
 				OutSpec("media:void")),
 			"Throw Error", "throw_error",
 		),
 		*capns.NewCap(
 			mustBuild(capns.NewCapUrnBuilder().
 				Tag("op", "peer_echo").
-				InSpec("media:string;textable;form=scalar").
-				OutSpec("media:string;textable;form=scalar")),
+				InSpec("media:customer-message;textable;form=scalar").
+				OutSpec("media:customer-message;textable;form=scalar")),
 			"Peer Echo", "peer_echo",
 		),
 		*capns.NewCap(
 			mustBuild(capns.NewCapUrnBuilder().
 				Tag("op", "nested_call").
-				InSpec("media:number;form=scalar").
-				OutSpec("media:string;textable;form=scalar")),
+				InSpec("media:order-value;json;textable;form=map").
+				OutSpec("media:final-price;integer;textable;numeric;form=scalar")),
 			"Nested Call", "nested_call",
 		),
 		*capns.NewCap(
 			mustBuild(capns.NewCapUrnBuilder().
 				Tag("op", "heartbeat_stress").
-				InSpec("media:number;form=scalar").
-				OutSpec("media:string;textable;form=scalar")),
+				InSpec("media:monitoring-duration-ms;json;textable;form=map").
+				OutSpec("media:health-status;textable;form=scalar")),
 			"Heartbeat Stress", "heartbeat_stress",
 		),
 		*capns.NewCap(
 			mustBuild(capns.NewCapUrnBuilder().
 				Tag("op", "concurrent_stress").
-				InSpec("media:number;form=scalar").
-				OutSpec("media:string;textable;form=scalar")),
+				InSpec("media:order-batch-size;json;textable;form=map").
+				OutSpec("media:batch-result;textable;form=scalar")),
 			"Concurrent Stress", "concurrent_stress",
 		),
 		*capns.NewCap(
 			mustBuild(capns.NewCapUrnBuilder().
 				Tag("op", "get_manifest").
 				InSpec("media:void").
-				OutSpec("media:json")),
+				OutSpec("media:service-capabilities;json;textable;form=map")),
 			"Get Manifest", "get_manifest",
 		),
 		*capns.NewCap(
 			mustBuild(capns.NewCapUrnBuilder().
 				Tag("op", "process_large").
-				InSpec("media:bytes").
-				OutSpec("media:json")),
+				InSpec("media:uploaded-document;bytes").
+				OutSpec("media:document-info;json;textable;form=map")),
 			"Process Large", "process_large",
 		),
 		*capns.NewCap(
 			mustBuild(capns.NewCapUrnBuilder().
 				Tag("op", "hash_incoming").
-				InSpec("media:bytes").
-				OutSpec("media:string;textable;form=scalar")),
+				InSpec("media:uploaded-document;bytes").
+				OutSpec("media:document-hash;textable;form=scalar")),
 			"Hash Incoming", "hash_incoming",
 		),
 		*capns.NewCap(
 			mustBuild(capns.NewCapUrnBuilder().
 				Tag("op", "verify_binary").
-				InSpec("media:bytes").
-				OutSpec("media:string;textable;form=scalar")),
+				InSpec("media:package-data;bytes").
+				OutSpec("media:verification-status;textable;form=scalar")),
 			"Verify Binary", "verify_binary",
 		),
 		func() capns.Cap {
 			stdin := "media:bytes"
 			position := 0
-			argDesc := "Path to file to read"
+			argDesc := "Path to invoice file to read"
 
 			cap := capns.NewCap(
 				mustBuild(capns.NewCapUrnBuilder().
 					Tag("op", "read_file_info").
-					InSpec("media:bytes").
-					OutSpec("media:json")),
+					InSpec("media:invoice-path;textable;form=scalar").
+					OutSpec("media:invoice-metadata;json;textable;form=map")),
 				"Read File Info", "read_file_info",
 			)
 			cap.Args = []capns.CapArg{
 				{
-					MediaUrn: "media:file-path;textable;form=scalar",
+					MediaUrn: "media:invoice-path;textable;form=scalar",
 					Required: true,
 					Sources: []capns.ArgSource{
 						{Stdin: &stdin},
@@ -263,8 +263,8 @@ func buildManifest() *capns.CapManifest {
 				},
 			}
 			cap.Output = &capns.CapOutput{
-				MediaUrn:          "media:json",
-				OutputDescription: "File size and SHA256 checksum",
+				MediaUrn:          "media:invoice-metadata;json;textable;form=map",
+				OutputDescription: "Invoice file size and SHA256 checksum",
 			}
 			return *cap
 		}(),
@@ -427,7 +427,7 @@ func handlePeerEcho(frames <-chan cbor.Frame, emitter capns.StreamEmitter, peer 
 	payload := collectPayload(frames)
 	// Call host's echo capability
 	args := []capns.CapArgumentValue{
-		capns.NewCapArgumentValue("media:bytes", payload),
+		capns.NewCapArgumentValue("media:customer-message;textable;form=scalar", payload),
 	}
 
 	peerFrames, err := peer.Invoke(`cap:in=*;op=echo;out=*`, args)
@@ -463,7 +463,7 @@ func handleNestedCall(frames <-chan cbor.Frame, emitter capns.StreamEmitter, pee
 		return err
 	}
 	args := []capns.CapArgumentValue{
-		capns.NewCapArgumentValue("media:json", input),
+		capns.NewCapArgumentValue("media:order-value;json;textable;form=map", input),
 	}
 
 	peerFrames, err := peer.Invoke(`cap:in=*;op=double;out=*`, args)

@@ -122,8 +122,8 @@ fn build_manifest() -> CapManifest {
         Cap::new(
             CapUrnBuilder::new()
                 .tag("op", "echo")
-                .in_spec("media:string;textable;form=scalar")
-                .out_spec("media:string;textable;form=scalar")
+                .in_spec("media:customer-message;textable;form=scalar")
+                .out_spec("media:customer-message;textable;form=scalar")
                 .build()
                 .unwrap(),
             "Echo".to_string(),
@@ -132,8 +132,8 @@ fn build_manifest() -> CapManifest {
         Cap::new(
             CapUrnBuilder::new()
                 .tag("op", "double")
-                .in_spec("media:number;form=scalar")
-                .out_spec("media:number;form=scalar")
+                .in_spec("media:order-value;json;textable;form=map")
+                .out_spec("media:loyalty-points;integer;textable;numeric;form=scalar")
                 .build()
                 .unwrap(),
             "Double".to_string(),
@@ -142,8 +142,8 @@ fn build_manifest() -> CapManifest {
         Cap::new(
             CapUrnBuilder::new()
                 .tag("op", "stream_chunks")
-                .in_spec("media:number;form=scalar")
-                .out_spec("media:string;textable;streamable")
+                .in_spec("media:update-count;json;textable;form=map")
+                .out_spec("media:order-updates;textable")
                 .build()
                 .unwrap(),
             "Stream Chunks".to_string(),
@@ -152,8 +152,8 @@ fn build_manifest() -> CapManifest {
         Cap::new(
             CapUrnBuilder::new()
                 .tag("op", "binary_echo")
-                .in_spec("media:bytes")
-                .out_spec("media:bytes")
+                .in_spec("media:product-image;bytes")
+                .out_spec("media:product-image;bytes")
                 .build()
                 .unwrap(),
             "Binary Echo".to_string(),
@@ -162,8 +162,8 @@ fn build_manifest() -> CapManifest {
         Cap::new(
             CapUrnBuilder::new()
                 .tag("op", "slow_response")
-                .in_spec("media:number;form=scalar")
-                .out_spec("media:string;textable;form=scalar")
+                .in_spec("media:payment-delay-ms;json;textable;form=map")
+                .out_spec("media:payment-result;textable;form=scalar")
                 .build()
                 .unwrap(),
             "Slow Response".to_string(),
@@ -172,8 +172,8 @@ fn build_manifest() -> CapManifest {
         Cap::new(
             CapUrnBuilder::new()
                 .tag("op", "generate_large")
-                .in_spec("media:number;form=scalar")
-                .out_spec("media:bytes")
+                .in_spec("media:report-size;json;textable;form=map")
+                .out_spec("media:sales-report;bytes")
                 .build()
                 .unwrap(),
             "Generate Large".to_string(),
@@ -182,8 +182,8 @@ fn build_manifest() -> CapManifest {
         Cap::new(
             CapUrnBuilder::new()
                 .tag("op", "with_status")
-                .in_spec("media:number;form=scalar")
-                .out_spec("media:string;textable;form=scalar")
+                .in_spec("media:fulfillment-steps;json;textable;form=map")
+                .out_spec("media:fulfillment-status;textable;form=scalar")
                 .build()
                 .unwrap(),
             "With Status".to_string(),
@@ -192,7 +192,7 @@ fn build_manifest() -> CapManifest {
         Cap::new(
             CapUrnBuilder::new()
                 .tag("op", "throw_error")
-                .in_spec("media:string;textable;form=scalar")
+                .in_spec("media:payment-error;json;textable;form=map")
                 .out_spec("media:void")
                 .build()
                 .unwrap(),
@@ -202,8 +202,8 @@ fn build_manifest() -> CapManifest {
         Cap::new(
             CapUrnBuilder::new()
                 .tag("op", "peer_echo")
-                .in_spec("media:string;textable;form=scalar")
-                .out_spec("media:string;textable;form=scalar")
+                .in_spec("media:customer-message;textable;form=scalar")
+                .out_spec("media:customer-message;textable;form=scalar")
                 .build()
                 .unwrap(),
             "Peer Echo".to_string(),
@@ -212,8 +212,8 @@ fn build_manifest() -> CapManifest {
         Cap::new(
             CapUrnBuilder::new()
                 .tag("op", "nested_call")
-                .in_spec("media:number;form=scalar")
-                .out_spec("media:string;textable;form=scalar")
+                .in_spec("media:order-value;json;textable;form=map")
+                .out_spec("media:final-price;integer;textable;numeric;form=scalar")
                 .build()
                 .unwrap(),
             "Nested Call".to_string(),
@@ -222,8 +222,8 @@ fn build_manifest() -> CapManifest {
         Cap::new(
             CapUrnBuilder::new()
                 .tag("op", "heartbeat_stress")
-                .in_spec("media:number;form=scalar")
-                .out_spec("media:string;textable;form=scalar")
+                .in_spec("media:monitoring-duration-ms;json;textable;form=map")
+                .out_spec("media:health-status;textable;form=scalar")
                 .build()
                 .unwrap(),
             "Heartbeat Stress".to_string(),
@@ -232,8 +232,8 @@ fn build_manifest() -> CapManifest {
         Cap::new(
             CapUrnBuilder::new()
                 .tag("op", "concurrent_stress")
-                .in_spec("media:number;form=scalar")
-                .out_spec("media:string;textable;form=scalar")
+                .in_spec("media:order-batch-size;json;textable;form=map")
+                .out_spec("media:batch-result;textable;form=scalar")
                 .build()
                 .unwrap(),
             "Concurrent Stress".to_string(),
@@ -243,7 +243,7 @@ fn build_manifest() -> CapManifest {
             CapUrnBuilder::new()
                 .tag("op", "get_manifest")
                 .in_spec("media:void")
-                .out_spec("media:json")
+                .out_spec("media:service-capabilities;json;textable;form=map")
                 .build()
                 .unwrap(),
             "Get Manifest".to_string(),
@@ -252,8 +252,8 @@ fn build_manifest() -> CapManifest {
         Cap::new(
             CapUrnBuilder::new()
                 .tag("op", "process_large")
-                .in_spec("media:bytes")
-                .out_spec("media:json")
+                .in_spec("media:uploaded-document;bytes")
+                .out_spec("media:document-info;json;textable;form=map")
                 .build()
                 .unwrap(),
             "Process Large".to_string(),
@@ -262,8 +262,8 @@ fn build_manifest() -> CapManifest {
         Cap::new(
             CapUrnBuilder::new()
                 .tag("op", "hash_incoming")
-                .in_spec("media:bytes")
-                .out_spec("media:string;textable;form=scalar")
+                .in_spec("media:uploaded-document;bytes")
+                .out_spec("media:document-hash;textable;form=scalar")
                 .build()
                 .unwrap(),
             "Hash Incoming".to_string(),
@@ -272,8 +272,8 @@ fn build_manifest() -> CapManifest {
         Cap::new(
             CapUrnBuilder::new()
                 .tag("op", "verify_binary")
-                .in_spec("media:bytes")
-                .out_spec("media:string;textable;form=scalar")
+                .in_spec("media:package-data;bytes")
+                .out_spec("media:verification-status;textable;form=scalar")
                 .build()
                 .unwrap(),
             "Verify Binary".to_string(),
@@ -283,15 +283,15 @@ fn build_manifest() -> CapManifest {
             let mut cap = Cap::new(
                 CapUrnBuilder::new()
                     .tag("op", "read_file_info")
-                    .in_spec("media:file-path;textable;form=scalar")
-                    .out_spec("media:json")
+                    .in_spec("media:invoice-path;textable;form=scalar")
+                    .out_spec("media:invoice-metadata;json;textable;form=map")
                     .build()
                     .unwrap(),
                 "Read File Info".to_string(),
                 "read_file_info".to_string(),
             );
             cap.args = vec![CapArg {
-                media_urn: "media:file-path;textable;form=scalar".to_string(),
+                media_urn: "media:invoice-path;textable;form=scalar".to_string(),
                 required: true,
                 sources: vec![
                     ArgSource::Stdin {
@@ -299,13 +299,13 @@ fn build_manifest() -> CapManifest {
                     },
                     ArgSource::Position { position: 0 },
                 ],
-                arg_description: Some("Path to file".to_string()),
+                arg_description: Some("Path to invoice file".to_string()),
                 default_value: None,
                 metadata: None,
             }];
             cap.output = Some(CapOutput {
-                media_urn: "media:json".to_string(),
-                output_description: "File size and SHA256 checksum".to_string(),
+                media_urn: "media:invoice-metadata;json;textable;form=map".to_string(),
+                output_description: "Invoice file size and SHA256 checksum".to_string(),
                 metadata: None,
             });
             cap
@@ -550,7 +550,7 @@ fn handle_nested_call(
     // Call host's double capability
     let input = serde_json::to_vec(&serde_json::json!({"value": value}))
         .map_err(|e| RuntimeError::Serialize(e.to_string()))?;
-    let args = vec![CapArgumentValue::new("media:json", input)];
+    let args = vec![CapArgumentValue::new("media:order-value;json;textable;form=map", input)];
 
     let peer_frames = peer.invoke(r#"cap:in=*;op=double;out=*"#, &args)?;
 

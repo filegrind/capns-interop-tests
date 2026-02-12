@@ -6,106 +6,106 @@ import CryptoKit
 // MARK: - Manifest Building
 
 func buildManifest() -> [String: Any] {
-    // URNs must match exactly what TEST_CAPS uses
+    // E-commerce semantic media URNs - must match across all plugin languages
     let caps: [[String: Any]] = [
         [
-            "urn": "cap:in=\"media:string;textable;form=scalar\";op=echo;out=\"media:string;textable;form=scalar\"",
+            "urn": "cap:in=\"media:customer-message;textable;form=scalar\";op=echo;out=\"media:customer-message;textable;form=scalar\"",
             "title": "Echo",
             "command": "echo"
         ],
         [
-            "urn": "cap:in=\"media:number;form=scalar\";op=double;out=\"media:number;form=scalar\"",
+            "urn": "cap:in=\"media:order-value;json;textable;form=map\";op=double;out=\"media:loyalty-points;integer;textable;numeric;form=scalar\"",
             "title": "Double",
             "command": "double"
         ],
         [
-            "urn": "cap:in=\"media:number;form=scalar\";op=stream_chunks;out=\"media:string;textable;streamable\"",
+            "urn": "cap:in=\"media:update-count;json;textable;form=map\";op=stream_chunks;out=\"media:order-updates;textable\"",
             "title": "Stream Chunks",
             "command": "stream_chunks"
         ],
         [
-            "urn": "cap:in=\"media:bytes\";op=binary_echo;out=\"media:bytes\"",
+            "urn": "cap:in=\"media:product-image;bytes\";op=binary_echo;out=\"media:product-image;bytes\"",
             "title": "Binary Echo",
             "command": "binary_echo"
         ],
         [
-            "urn": "cap:in=\"media:number;form=scalar\";op=slow_response;out=\"media:string;textable;form=scalar\"",
+            "urn": "cap:in=\"media:payment-delay-ms;json;textable;form=map\";op=slow_response;out=\"media:payment-result;textable;form=scalar\"",
             "title": "Slow Response",
             "command": "slow_response"
         ],
         [
-            "urn": "cap:in=\"media:number;form=scalar\";op=generate_large;out=\"media:bytes\"",
+            "urn": "cap:in=\"media:report-size;json;textable;form=map\";op=generate_large;out=\"media:sales-report;bytes\"",
             "title": "Generate Large",
             "command": "generate_large"
         ],
         [
-            "urn": "cap:in=\"media:number;form=scalar\";op=with_status;out=\"media:string;textable;form=scalar\"",
+            "urn": "cap:in=\"media:fulfillment-steps;json;textable;form=map\";op=with_status;out=\"media:fulfillment-status;textable;form=scalar\"",
             "title": "With Status",
             "command": "with_status"
         ],
         [
-            "urn": "cap:in=\"media:string;textable;form=scalar\";op=throw_error;out=\"media:void\"",
+            "urn": "cap:in=\"media:payment-error;json;textable;form=map\";op=throw_error;out=\"media:void\"",
             "title": "Throw Error",
             "command": "throw_error"
         ],
         [
-            "urn": "cap:in=\"media:string;textable;form=scalar\";op=peer_echo;out=\"media:string;textable;form=scalar\"",
+            "urn": "cap:in=\"media:customer-message;textable;form=scalar\";op=peer_echo;out=\"media:customer-message;textable;form=scalar\"",
             "title": "Peer Echo",
             "command": "peer_echo"
         ],
         [
-            "urn": "cap:in=\"media:number;form=scalar\";op=nested_call;out=\"media:string;textable;form=scalar\"",
+            "urn": "cap:in=\"media:order-value;json;textable;form=map\";op=nested_call;out=\"media:final-price;integer;textable;numeric;form=scalar\"",
             "title": "Nested Call",
             "command": "nested_call"
         ],
         [
-            "urn": "cap:in=\"media:number;form=scalar\";op=heartbeat_stress;out=\"media:string;textable;form=scalar\"",
+            "urn": "cap:in=\"media:monitoring-duration-ms;json;textable;form=map\";op=heartbeat_stress;out=\"media:health-status;textable;form=scalar\"",
             "title": "Heartbeat Stress",
             "command": "heartbeat_stress"
         ],
         [
-            "urn": "cap:in=\"media:number;form=scalar\";op=concurrent_stress;out=\"media:string;textable;form=scalar\"",
+            "urn": "cap:in=\"media:order-batch-size;json;textable;form=map\";op=concurrent_stress;out=\"media:batch-result;textable;form=scalar\"",
             "title": "Concurrent Stress",
             "command": "concurrent_stress"
         ],
         [
-            "urn": "cap:in=\"media:void\";op=get_manifest;out=\"media:json\"",
+            "urn": "cap:in=\"media:void\";op=get_manifest;out=\"media:service-capabilities;json;textable;form=map\"",
             "title": "Get Manifest",
             "command": "get_manifest"
         ],
         [
-            "urn": "cap:in=\"media:bytes\";op=process_large;out=\"media:json\"",
+            "urn": "cap:in=\"media:uploaded-document;bytes\";op=process_large;out=\"media:document-info;json;textable;form=map\"",
             "title": "Process Large",
             "command": "process_large"
         ],
         [
-            "urn": "cap:in=\"media:bytes\";op=hash_incoming;out=\"media:string;textable;form=scalar\"",
+            "urn": "cap:in=\"media:uploaded-document;bytes\";op=hash_incoming;out=\"media:document-hash;textable;form=scalar\"",
             "title": "Hash Incoming",
             "command": "hash_incoming"
         ],
         [
-            "urn": "cap:in=\"media:bytes\";op=verify_binary;out=\"media:string;textable;form=scalar\"",
+            "urn": "cap:in=\"media:package-data;bytes\";op=verify_binary;out=\"media:verification-status;textable;form=scalar\"",
             "title": "Verify Binary",
             "command": "verify_binary"
         ],
         [
-            "urn": "cap:in=\"media:bytes\";op=read_file_info;out=\"media:json\"",
+            "urn": "cap:in=\"media:invoice-path;textable;form=scalar\";op=read_file_info;out=\"media:invoice-metadata;json;textable;form=map\"",
             "title": "Read File Info",
             "command": "read_file_info",
             "args": [
                 [
-                    "media_urn": "media:file-path;textable;form=scalar",
+                    "media_urn": "media:invoice-path;textable;form=scalar",
                     "required": true,
                     "sources": [
                         ["stdin": "media:bytes"],
                         ["position": 0]
                     ],
-                    "arg_description": "Path to file to read"
+                    "arg_description": "Path to invoice file to read"
                 ] as [String: Any]
             ],
             "output": [
-                "media_urn": "media:json",
-                "output_description": "File size and SHA256 checksum"
+                "media_urn": "media:invoice-metadata;json;textable;form=map",
+                "output_description": "Invoice file size and SHA256 checksum"
             ] as [String: Any]
         ]
     ]
@@ -300,7 +300,7 @@ func handleThrowError(stream: AsyncStream<CborFrame>, emitter: CborStreamEmitter
 func handlePeerEcho(stream: AsyncStream<CborFrame>, emitter: CborStreamEmitter, peer: CborPeerInvoker) async throws -> Void {
     let payload = try await collectPayload(from: stream)
     // Call host's echo capability
-    let arg = CborCapArgumentValue(mediaUrn: "media:bytes", value: payload)
+    let arg = CborCapArgumentValue(mediaUrn: "media:customer-message;textable;form=scalar", value: payload)
     let peerFrames = try peer.invoke(capUrn: "cap:in=*;op=echo;out=*", arguments: [arg])
 
     // Collect and decode peer response
@@ -317,7 +317,7 @@ func handleNestedCall(stream: AsyncStream<CborFrame>, emitter: CborStreamEmitter
 
     // Call host's double capability
     let inputData = try JSONSerialization.data(withJSONObject: ["value": value])
-    let arg = CborCapArgumentValue(mediaUrn: "media:json", value: inputData)
+    let arg = CborCapArgumentValue(mediaUrn: "media:order-value;json;textable;form=map", value: inputData)
     let peerFrames = try peer.invoke(capUrn: "cap:in=*;op=double;out=*", arguments: [arg])
 
     // Collect and decode peer response
@@ -439,23 +439,23 @@ func handleReadFileInfo(stream: AsyncStream<CborFrame>, emitter: CborStreamEmitt
 let manifestJSON = buildManifestJSON()
 let runtime = try! CborPluginRuntime(manifestJSON: manifestJSON)
 
-// Register all handlers with exact URNs using registerRaw
-runtime.registerRaw(capUrn: "cap:in=\"media:string;textable;form=scalar\";op=echo;out=\"media:string;textable;form=scalar\"", handler: handleEcho)
-runtime.registerRaw(capUrn: "cap:in=\"media:number;form=scalar\";op=double;out=\"media:number;form=scalar\"", handler: handleDouble)
-runtime.registerRaw(capUrn: "cap:in=\"media:number;form=scalar\";op=stream_chunks;out=\"media:string;textable;streamable\"", handler: handleStreamChunks)
-runtime.registerRaw(capUrn: "cap:in=\"media:bytes\";op=binary_echo;out=\"media:bytes\"", handler: handleBinaryEcho)
-runtime.registerRaw(capUrn: "cap:in=\"media:number;form=scalar\";op=slow_response;out=\"media:string;textable;form=scalar\"", handler: handleSlowResponse)
-runtime.registerRaw(capUrn: "cap:in=\"media:number;form=scalar\";op=generate_large;out=\"media:bytes\"", handler: handleGenerateLarge)
-runtime.registerRaw(capUrn: "cap:in=\"media:number;form=scalar\";op=with_status;out=\"media:string;textable;form=scalar\"", handler: handleWithStatus)
-runtime.registerRaw(capUrn: "cap:in=\"media:string;textable;form=scalar\";op=throw_error;out=\"media:void\"", handler: handleThrowError)
-runtime.registerRaw(capUrn: "cap:in=\"media:string;textable;form=scalar\";op=peer_echo;out=\"media:string;textable;form=scalar\"", handler: handlePeerEcho)
-runtime.registerRaw(capUrn: "cap:in=\"media:number;form=scalar\";op=nested_call;out=\"media:string;textable;form=scalar\"", handler: handleNestedCall)
-runtime.registerRaw(capUrn: "cap:in=\"media:number;form=scalar\";op=heartbeat_stress;out=\"media:string;textable;form=scalar\"", handler: handleHeartbeatStress)
-runtime.registerRaw(capUrn: "cap:in=\"media:number;form=scalar\";op=concurrent_stress;out=\"media:string;textable;form=scalar\"", handler: handleConcurrentStress)
-runtime.registerRaw(capUrn: "cap:in=\"media:void\";op=get_manifest;out=\"media:json\"", handler: handleGetManifest)
-runtime.registerRaw(capUrn: "cap:in=\"media:bytes\";op=process_large;out=\"media:json\"", handler: handleProcessLarge)
-runtime.registerRaw(capUrn: "cap:in=\"media:bytes\";op=hash_incoming;out=\"media:string;textable;form=scalar\"", handler: handleHashIncoming)
-runtime.registerRaw(capUrn: "cap:in=\"media:bytes\";op=verify_binary;out=\"media:string;textable;form=scalar\"", handler: handleVerifyBinary)
-runtime.registerRaw(capUrn: "cap:in=\"media:bytes\";op=read_file_info;out=\"media:json\"", handler: handleReadFileInfo)
+// Register all handlers with exact e-commerce semantic URNs using registerRaw
+runtime.registerRaw(capUrn: "cap:in=\"media:customer-message;textable;form=scalar\";op=echo;out=\"media:customer-message;textable;form=scalar\"", handler: handleEcho)
+runtime.registerRaw(capUrn: "cap:in=\"media:order-value;json;textable;form=map\";op=double;out=\"media:loyalty-points;integer;textable;numeric;form=scalar\"", handler: handleDouble)
+runtime.registerRaw(capUrn: "cap:in=\"media:update-count;json;textable;form=map\";op=stream_chunks;out=\"media:order-updates;textable\"", handler: handleStreamChunks)
+runtime.registerRaw(capUrn: "cap:in=\"media:product-image;bytes\";op=binary_echo;out=\"media:product-image;bytes\"", handler: handleBinaryEcho)
+runtime.registerRaw(capUrn: "cap:in=\"media:payment-delay-ms;json;textable;form=map\";op=slow_response;out=\"media:payment-result;textable;form=scalar\"", handler: handleSlowResponse)
+runtime.registerRaw(capUrn: "cap:in=\"media:report-size;json;textable;form=map\";op=generate_large;out=\"media:sales-report;bytes\"", handler: handleGenerateLarge)
+runtime.registerRaw(capUrn: "cap:in=\"media:fulfillment-steps;json;textable;form=map\";op=with_status;out=\"media:fulfillment-status;textable;form=scalar\"", handler: handleWithStatus)
+runtime.registerRaw(capUrn: "cap:in=\"media:payment-error;json;textable;form=map\";op=throw_error;out=\"media:void\"", handler: handleThrowError)
+runtime.registerRaw(capUrn: "cap:in=\"media:customer-message;textable;form=scalar\";op=peer_echo;out=\"media:customer-message;textable;form=scalar\"", handler: handlePeerEcho)
+runtime.registerRaw(capUrn: "cap:in=\"media:order-value;json;textable;form=map\";op=nested_call;out=\"media:final-price;integer;textable;numeric;form=scalar\"", handler: handleNestedCall)
+runtime.registerRaw(capUrn: "cap:in=\"media:monitoring-duration-ms;json;textable;form=map\";op=heartbeat_stress;out=\"media:health-status;textable;form=scalar\"", handler: handleHeartbeatStress)
+runtime.registerRaw(capUrn: "cap:in=\"media:order-batch-size;json;textable;form=map\";op=concurrent_stress;out=\"media:batch-result;textable;form=scalar\"", handler: handleConcurrentStress)
+runtime.registerRaw(capUrn: "cap:in=\"media:void\";op=get_manifest;out=\"media:service-capabilities;json;textable;form=map\"", handler: handleGetManifest)
+runtime.registerRaw(capUrn: "cap:in=\"media:uploaded-document;bytes\";op=process_large;out=\"media:document-info;json;textable;form=map\"", handler: handleProcessLarge)
+runtime.registerRaw(capUrn: "cap:in=\"media:uploaded-document;bytes\";op=hash_incoming;out=\"media:document-hash;textable;form=scalar\"", handler: handleHashIncoming)
+runtime.registerRaw(capUrn: "cap:in=\"media:package-data;bytes\";op=verify_binary;out=\"media:verification-status;textable;form=scalar\"", handler: handleVerifyBinary)
+runtime.registerRaw(capUrn: "cap:in=\"media:invoice-path;textable;form=scalar\";op=read_file_info;out=\"media:invoice-metadata;json;textable;form=map\"", handler: handleReadFileInfo)
 
 try! runtime.run()
