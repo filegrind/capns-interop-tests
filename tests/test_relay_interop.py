@@ -81,19 +81,30 @@ def _start_relay_host(relay_host_binary, plugin_paths, relay=True):
 
 
 def _send_request(writer, cap_urn, payload, media_urn="media:bytes"):
-    """Send a complete request and return the req_id used."""
+    """Send a complete request and return the req_id used.
+
+    Protocol v2: CHUNK payloads must be CBOR-encoded.
+    """
+    import cbor2
     req_id = MessageId.new_uuid()
     writer.write(Frame.req(req_id, cap_urn, b"", "application/octet-stream"))
     writer.write(Frame.stream_start(req_id, "arg-0", media_urn))
-    writer.write(Frame.chunk(req_id, "arg-0", 0, payload))
+    # CBOR-encode the payload per protocol v2
+    cbor_payload = cbor2.dumps(payload)
+    writer.write(Frame.chunk(req_id, "arg-0", 0, cbor_payload))
     writer.write(Frame.stream_end(req_id, "arg-0"))
     writer.write(Frame.end(req_id))
     return req_id
 
 
 def _read_response(reader, max_frames=50):
-    """Read response frames until END or ERR. Returns (chunk_data, all_frames)."""
-    chunks = bytearray()
+    """Read response frames until END or ERR. Returns (decoded_data, all_frames).
+
+    Protocol v2: Each CHUNK payload is CBOR-encoded and must be decoded.
+    Multiple byte chunks are concatenated.
+    """
+    import cbor2
+    chunks = []
     frames = []
     for _ in range(max_frames):
         frame = reader.read()
@@ -101,19 +112,25 @@ def _read_response(reader, max_frames=50):
             break
         frames.append(frame)
         if frame.frame_type == FrameType.CHUNK and frame.payload:
-            chunks.extend(frame.payload)
+            # Decode each CBOR chunk
+            decoded = cbor2.loads(frame.payload)
+            chunks.append(decoded)
         if frame.frame_type in (FrameType.END, FrameType.ERR):
             break
-    return bytes(chunks), frames
 
+    # Reconstruct based on type (matching frame_test_helper.py logic)
+    if not chunks:
+        return b'', frames
+    elif len(chunks) == 1:
+        return chunks[0], frames
+    else:
+        # Multiple chunks: concatenate if bytes
+        first = chunks[0]
+        if isinstance(first, bytes):
+            return b''.join(c for c in chunks if isinstance(c, bytes)), frames
+        else:
+            return chunks, frames
 
-def _decode_cbor_bytes(raw):
-    """Decode a CBOR byteString from response data."""
-    import cbor2
-    try:
-        return cbor2.loads(raw)
-    except Exception:
-        return raw
 
 
 def _stop(proc, timeout=5):
@@ -185,7 +202,7 @@ def test_relay_request_passthrough(relay_host_binaries, plugin_binaries, host_la
         # Send echo request through relay
         req_id = _send_request(writer, ECHO_CAP, b"relay-echo-test")
         raw, frames = _read_response(reader)
-        decoded = _decode_cbor_bytes(raw)
+        decoded = raw
 
         assert decoded == b"relay-echo-test", (
             f"[{host_lang}/{plugin_lang}] echo mismatch through relay: {decoded!r}"
@@ -224,7 +241,7 @@ def test_relay_state_delivery(relay_host_binaries, plugin_binaries, host_lang, p
         # the plugin runtime would error out and this request would fail
         req_id = _send_request(writer, ECHO_CAP, b"after-relay-state")
         raw, frames = _read_response(reader)
-        decoded = _decode_cbor_bytes(raw)
+        decoded = raw
 
         assert decoded == b"after-relay-state", (
             f"[{host_lang}/{plugin_lang}] echo after RelayState failed: {decoded!r}"
@@ -286,13 +303,13 @@ def test_relay_mixed_traffic(relay_host_binaries, plugin_binaries, host_lang, pl
 
         req_id1 = _send_request(writer, ECHO_CAP, b"mixed-1")
         raw1, _ = _read_response(reader)
-        decoded1 = _decode_cbor_bytes(raw1)
+        decoded1 = raw1
 
         RelayMaster.send_state(writer, b'{"step": 2}')
 
         req_id2 = _send_request(writer, BINARY_ECHO_CAP, bytes(range(64)))
         raw2, _ = _read_response(reader)
-        decoded2 = _decode_cbor_bytes(raw2)
+        decoded2 = raw2
 
         assert decoded1 == b"mixed-1", (
             f"[{host_lang}/{plugin_lang}] first request after state: {decoded1!r}"

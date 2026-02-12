@@ -1,71 +1,188 @@
-"""Streaming interoperability tests."""
+"""Streaming interoperability tests.
 
+Tests streaming responses (multiple chunks), large payload transfer,
+binary data integrity, and chunk ordering across host x plugin combinations.
+"""
+
+import json
 import pytest
-from capns_interop.framework.orchestrator import Orchestrator
-from capns_interop.scenarios.streaming import (
-    StreamChunksScenario,
-    LargePayloadScenario,
-    BinaryDataScenario,
-    StreamOrderingScenario,
+
+from capns.cbor_frame import FrameType
+from capns_interop import TEST_CAPS
+from capns_interop.framework.frame_test_helper import (
+    HostProcess,
+    make_req_id,
+    send_request,
+    read_response,
+    decode_cbor_response,
 )
-from capns_interop.scenarios.base import ScenarioStatus
+
+SUPPORTED_HOST_LANGS = ["python", "go", "rust", "swift"]
+SUPPORTED_PLUGIN_LANGS = ["rust", "go", "python", "swift"]
 
 
-@pytest.mark.asyncio
 @pytest.mark.timeout(30)
-@pytest.mark.parametrize("plugin_name", ["rust", "python", "swift", "go"])
-async def test_stream_chunks(plugin_binaries, plugin_name):
-    """Test streaming multiple chunks."""
-    plugin_path = plugin_binaries[plugin_name]
-    orchestrator = Orchestrator()
-    scenario = StreamChunksScenario()
+@pytest.mark.parametrize("host_lang", SUPPORTED_HOST_LANGS)
+@pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
+def test_stream_chunks(relay_host_binaries, plugin_binaries, host_lang, plugin_lang):
+    """Test streaming multiple chunks: request N chunks, verify all received in order."""
+    host = HostProcess(
+        str(relay_host_binaries[host_lang]),
+        [str(plugin_binaries[plugin_lang])],
+    )
+    reader, writer = host.start()
 
-    result = await orchestrator.run_scenario(plugin_path, scenario)
+    try:
+        chunk_count = 5
+        input_json = json.dumps({"value": chunk_count}).encode()
+        req_id = make_req_id()
+        send_request(writer, req_id, TEST_CAPS["stream_chunks"], input_json, media_urn="media:json")
 
-    assert result.status == ScenarioStatus.PASS, f"Stream chunks failed: {result.error_message}"
-    print(f"  [{plugin_name}] {result}")
+        # Collect all response frames
+        chunks_data = []
+        for _ in range(200):
+            frame = reader.read()
+            if frame is None:
+                break
+            if frame.frame_type == FrameType.CHUNK and frame.payload:
+                chunks_data.append(decode_cbor_response(frame.payload))
+            if frame.frame_type in (FrameType.END, FrameType.ERR):
+                break
+
+        # Verify we got chunks (may be more than chunk_count due to framing)
+        assert len(chunks_data) >= chunk_count, (
+            f"[{host_lang}/{plugin_lang}] expected >= {chunk_count} chunks, got {len(chunks_data)}"
+        )
+    finally:
+        host.stop()
 
 
-@pytest.mark.asyncio
 @pytest.mark.timeout(60)
-@pytest.mark.parametrize("plugin_name", ["rust", "python", "swift", "go"])
-async def test_large_payload(plugin_binaries, plugin_name):
-    """Test large payload transfer (1MB)."""
-    plugin_path = plugin_binaries[plugin_name]
-    orchestrator = Orchestrator()
-    scenario = LargePayloadScenario()
+@pytest.mark.parametrize("host_lang", SUPPORTED_HOST_LANGS)
+@pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
+def test_large_payload(relay_host_binaries, plugin_binaries, host_lang, plugin_lang):
+    """Test large payload transfer (10MB): request generated data, verify size + pattern."""
+    host = HostProcess(
+        str(relay_host_binaries[host_lang]),
+        [str(plugin_binaries[plugin_lang])],
+    )
+    reader, writer = host.start()
 
-    result = await orchestrator.run_scenario(plugin_path, scenario)
+    try:
+        size = 10 * 1024 * 1024  # 10 MB
+        input_json = json.dumps({"value": size}).encode()
+        req_id = make_req_id()
+        send_request(writer, req_id, TEST_CAPS["generate_large"], input_json, media_urn="media:json")
 
-    assert result.status == ScenarioStatus.PASS, f"Large payload failed: {result.error_message}"
-    print(f"  [{plugin_name}] {result}")
+        # Collect all chunk data
+        # Each CHUNK payload MUST be a complete, independently decodable CBOR value
+        import cbor2
+        all_data = bytearray()
+        for _ in range(5000):
+            frame = reader.read()
+            if frame is None:
+                break
+            if frame.frame_type == FrameType.CHUNK and frame.payload:
+                # Decode each chunk independently - FAIL HARD if not valid CBOR
+                decoded = cbor2.loads(frame.payload)  # No try/except
+                if isinstance(decoded, bytes):
+                    all_data.extend(decoded)
+                elif isinstance(decoded, str):
+                    all_data.extend(decoded.encode('utf-8'))
+                else:
+                    raise ValueError(f"Unexpected CBOR type in chunk: {type(decoded)}")
+            if frame.frame_type in (FrameType.END, FrameType.ERR):
+                break
+
+        assert len(all_data) == size, (
+            f"[{host_lang}/{plugin_lang}] expected {size} bytes, got {len(all_data)}"
+        )
+
+        # Verify pattern
+        pattern = b"ABCDEFGH"
+        for i in range(min(1000, size)):
+            assert all_data[i] == pattern[i % len(pattern)], (
+                f"[{host_lang}/{plugin_lang}] pattern mismatch at byte {i}"
+            )
+    finally:
+        host.stop()
 
 
-@pytest.mark.asyncio
 @pytest.mark.timeout(30)
-@pytest.mark.parametrize("plugin_name", ["rust", "python", "swift", "go"])
-async def test_binary_data(plugin_binaries, plugin_name):
-    """Test binary data with all byte values."""
-    plugin_path = plugin_binaries[plugin_name]
-    orchestrator = Orchestrator()
-    scenario = BinaryDataScenario()
+@pytest.mark.parametrize("host_lang", SUPPORTED_HOST_LANGS)
+@pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
+def test_binary_data(relay_host_binaries, plugin_binaries, host_lang, plugin_lang):
+    """Test binary data integrity: send all 256 byte values repeated, verify roundtrip."""
+    host = HostProcess(
+        str(relay_host_binaries[host_lang]),
+        [str(plugin_binaries[plugin_lang])],
+    )
+    reader, writer = host.start()
 
-    result = await orchestrator.run_scenario(plugin_path, scenario)
+    try:
+        test_data = bytes(range(256)) * 100  # 25.6 KB
+        req_id = make_req_id()
+        send_request(writer, req_id, TEST_CAPS["binary_echo"], test_data)
+        output, frames = read_response(reader)
 
-    assert result.status == ScenarioStatus.PASS, f"Binary data failed: {result.error_message}"
-    print(f"  [{plugin_name}] {result}")
+        assert output == test_data, (
+            f"[{host_lang}/{plugin_lang}] binary data mismatch "
+            f"(len: {len(output)} vs {len(test_data)})"
+        )
+    finally:
+        host.stop()
 
 
-@pytest.mark.asyncio
 @pytest.mark.timeout(30)
-@pytest.mark.parametrize("plugin_name", ["rust", "python", "swift", "go"])
-async def test_stream_ordering(plugin_binaries, plugin_name):
-    """Test streaming chunk ordering."""
-    plugin_path = plugin_binaries[plugin_name]
-    orchestrator = Orchestrator()
-    scenario = StreamOrderingScenario()
+@pytest.mark.parametrize("host_lang", SUPPORTED_HOST_LANGS)
+@pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
+def test_stream_ordering(relay_host_binaries, plugin_binaries, host_lang, plugin_lang):
+    """Test streaming chunk ordering: request 20 chunks, verify sequential order."""
+    host = HostProcess(
+        str(relay_host_binaries[host_lang]),
+        [str(plugin_binaries[plugin_lang])],
+    )
+    reader, writer = host.start()
 
-    result = await orchestrator.run_scenario(plugin_path, scenario)
+    try:
+        chunk_count = 20
+        input_json = json.dumps({"value": chunk_count}).encode()
+        req_id = make_req_id()
+        send_request(writer, req_id, TEST_CAPS["stream_chunks"], input_json, media_urn="media:json")
 
-    assert result.status == ScenarioStatus.PASS, f"Stream ordering failed: {result.error_message}"
-    print(f"  [{plugin_name}] {result}")
+        # Collect chunk data
+        chunk_payloads = []
+        for _ in range(500):
+            frame = reader.read()
+            if frame is None:
+                break
+            if frame.frame_type == FrameType.CHUNK and frame.payload:
+                decoded = decode_cbor_response(frame.payload)
+                if isinstance(decoded, bytes):
+                    decoded = decoded.decode("utf-8", errors="replace")
+                    # Handle JSON-encoded strings: "chunk-0" → chunk-0
+                    try:
+                        import json as j
+                        inner = j.loads(decoded)
+                        if isinstance(inner, str):
+                            decoded = inner
+                    except Exception:
+                        pass
+                chunk_payloads.append(str(decoded))
+            if frame.frame_type in (FrameType.END, FrameType.ERR):
+                break
+
+        # Verify ordering: chunk-0 before chunk-1 before chunk-2 ...
+        indices = {}
+        for idx, payload in enumerate(chunk_payloads):
+            for i in range(chunk_count):
+                if f"chunk-{i}" == payload:
+                    indices[i] = idx
+
+        for i in range(1, chunk_count):
+            if i in indices and (i - 1) in indices:
+                assert indices[i] > indices[i - 1], (
+                    f"[{host_lang}/{plugin_lang}] chunk-{i} arrived before chunk-{i-1}"
+                )
+    finally:
+        host.stop()

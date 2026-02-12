@@ -1,55 +1,113 @@
-"""Bidirectional communication interoperability tests."""
+"""Bidirectional communication interoperability tests.
 
+Tests plugin → host → plugin peer invocations. When a plugin makes a peer
+request (e.g., calls host's echo), the PluginHost routes it to another plugin
+instance (or back to the same one in a new request). This tests the full
+bidirectional path through all host x plugin combinations.
+"""
+
+import json
 import pytest
-from capns_interop.framework.orchestrator import Orchestrator
-from capns_interop.scenarios.bidirectional import (
-    PeerEchoScenario,
-    NestedCallScenario,
-    BidirectionalEchoScenario,
+
+from capns_interop import TEST_CAPS
+from capns_interop.framework.frame_test_helper import (
+    HostProcess,
+    make_req_id,
+    send_request,
+    read_response,
+    decode_cbor_response,
 )
-from capns_interop.scenarios.base import ScenarioStatus
+
+SUPPORTED_HOST_LANGS = ["python", "go", "rust", "swift"]
+SUPPORTED_PLUGIN_LANGS = ["rust", "go", "python", "swift"]
 
 
-@pytest.mark.asyncio
 @pytest.mark.timeout(30)
-@pytest.mark.parametrize("plugin_name", ["rust", "python", "swift", "go"])
-async def test_peer_echo(plugin_binaries, plugin_name):
-    """Test plugin calling host's echo capability."""
-    plugin_path = plugin_binaries[plugin_name]
-    orchestrator = Orchestrator()
-    scenario = PeerEchoScenario()
+@pytest.mark.parametrize("host_lang", SUPPORTED_HOST_LANGS)
+@pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
+def test_peer_echo(relay_host_binaries, plugin_binaries, host_lang, plugin_lang):
+    """Test plugin calling host's echo via PeerInvoker.
 
-    result = await orchestrator.run_scenario(plugin_path, scenario)
+    Plugin receives peer_echo request, calls back to echo capability via
+    PeerInvoker, and returns the result. The PluginHost routes the peer
+    request to the plugin's own echo handler.
+    """
+    host = HostProcess(
+        str(relay_host_binaries[host_lang]),
+        [str(plugin_binaries[plugin_lang])],
+    )
+    reader, writer = host.start()
 
-    assert result.status == ScenarioStatus.PASS, f"Peer echo failed: {result.error_message}"
-    print(f"  [{plugin_name}] {result}")
+    try:
+        test_input = b"Hello from peer!"
+        req_id = make_req_id()
+        send_request(writer, req_id, TEST_CAPS["peer_echo"], test_input)
+        output, frames = read_response(reader)
+
+        assert output == test_input, (
+            f"[{host_lang}/{plugin_lang}] peer echo mismatch: expected {test_input!r}, got {output!r}"
+        )
+    finally:
+        host.stop()
 
 
-@pytest.mark.asyncio
 @pytest.mark.timeout(30)
-@pytest.mark.parametrize("plugin_name", ["rust", "python", "swift", "go"])
-async def test_nested_call(plugin_binaries, plugin_name):
-    """Test nested invocation (plugin → host → plugin)."""
-    plugin_path = plugin_binaries[plugin_name]
-    orchestrator = Orchestrator()
-    scenario = NestedCallScenario()
+@pytest.mark.parametrize("host_lang", SUPPORTED_HOST_LANGS)
+@pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
+def test_nested_call(relay_host_binaries, plugin_binaries, host_lang, plugin_lang):
+    """Test nested invocation: plugin → host's double → back to plugin.
 
-    result = await orchestrator.run_scenario(plugin_path, scenario)
+    Plugin receives nested_call with value 21, calls host's double (21 * 2 = 42),
+    then doubles the result locally (42 * 2 = 84). The PluginHost routes the
+    peer double request to the plugin's own double handler.
+    """
+    host = HostProcess(
+        str(relay_host_binaries[host_lang]),
+        [str(plugin_binaries[plugin_lang])],
+    )
+    reader, writer = host.start()
 
-    assert result.status == ScenarioStatus.PASS, f"Nested call failed: {result.error_message}"
-    print(f"  [{plugin_name}] {result}")
+    try:
+        value = 21
+        input_json = json.dumps({"value": value}).encode()
+        req_id = make_req_id()
+        send_request(writer, req_id, TEST_CAPS["nested_call"], input_json, media_urn="media:json")
+        output, frames = read_response(reader)
+
+        if isinstance(output, bytes):
+            result = json.loads(output)
+        else:
+            result = output
+
+        expected = value * 4  # Doubled twice: 21 * 2 * 2 = 84
+        assert result == expected, (
+            f"[{host_lang}/{plugin_lang}] nested call mismatch: expected {expected}, got {result}"
+        )
+    finally:
+        host.stop()
 
 
-@pytest.mark.asyncio
 @pytest.mark.timeout(30)
-@pytest.mark.parametrize("plugin_name", ["rust", "python", "swift", "go"])
-async def test_bidirectional_echo_multi(plugin_binaries, plugin_name):
-    """Test multiple bidirectional echo calls."""
-    plugin_path = plugin_binaries[plugin_name]
-    orchestrator = Orchestrator()
-    scenario = BidirectionalEchoScenario()
+@pytest.mark.parametrize("host_lang", SUPPORTED_HOST_LANGS)
+@pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
+def test_bidirectional_echo_multi(relay_host_binaries, plugin_binaries, host_lang, plugin_lang):
+    """Test multiple sequential bidirectional echo calls."""
+    host = HostProcess(
+        str(relay_host_binaries[host_lang]),
+        [str(plugin_binaries[plugin_lang])],
+    )
+    reader, writer = host.start()
 
-    result = await orchestrator.run_scenario(plugin_path, scenario)
+    try:
+        test_values = [b"Test1", b"Test2", b"Test3"]
+        for test_val in test_values:
+            req_id = make_req_id()
+            send_request(writer, req_id, TEST_CAPS["peer_echo"], test_val)
+            output, frames = read_response(reader)
 
-    assert result.status == ScenarioStatus.PASS, f"Bidirectional echo multi failed: {result.error_message}"
-    print(f"  [{plugin_name}] {result}")
+            assert output == test_val, (
+                f"[{host_lang}/{plugin_lang}] peer echo mismatch: "
+                f"expected {test_val!r}, got {output!r}"
+            )
+    finally:
+        host.stop()

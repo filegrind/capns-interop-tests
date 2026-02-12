@@ -1,4 +1,5 @@
 import Foundation
+import SwiftCBOR
 import CapNsCbor
 import CryptoKit
 
@@ -123,47 +124,146 @@ func buildManifestJSON() -> String {
     return String(data: data, encoding: .utf8)!
 }
 
-// MARK: - Handlers
+// MARK: - Helper
 
-func handleEcho(payload: Data, emitter: CborStreamEmitter, peer: CborPeerInvoker) throws -> Data {
-    return payload
+// collectPayload reads all CHUNK frames, decodes each as CBOR, and accumulates bytes
+// PROTOCOL: Each CHUNK payload is a complete, independently decodable CBOR value
+// For byteString values, extract and concatenate the bytes
+// For utf8String values, extract and concatenate as UTF-8 bytes
+func collectPayload(from stream: AsyncStream<CborFrame>) async throws -> Data {
+    var accumulated = Data()
+    for await frame in stream {
+        if case .chunk = frame.frameType, let payload = frame.payload {
+            // Each CHUNK payload MUST be valid CBOR - decode it
+            guard let value = try? CBOR.decode([UInt8](payload)) else {
+                throw CborPluginRuntimeError.handlerError("CHUNK payload must be valid CBOR")
+            }
+
+            // Extract bytes from CBOR value
+            switch value {
+            case .byteString(let bytes):
+                accumulated.append(Data(bytes))
+            case .utf8String(let text):
+                accumulated.append(text.data(using: .utf8)!)
+            default:
+                throw CborPluginRuntimeError.handlerError("Unexpected CBOR type in CHUNK: expected byteString or utf8String")
+            }
+        }
+    }
+    return accumulated
 }
 
-func handleDouble(payload: Data, emitter: CborStreamEmitter, peer: CborPeerInvoker) throws -> Data {
+// collectPeerResponse reads peer response frames, decodes each CHUNK as CBOR, and reconstructs value
+// For simple values (byteString/utf8String/int), there's typically one chunk
+// For arrays/maps, multiple chunks are combined
+func collectPeerResponse(from stream: AsyncStream<CborFrame>) async throws -> CBOR {
+    var chunks: [CBOR] = []
+    for await frame in stream {
+        switch frame.frameType {
+        case .chunk:
+            if let payload = frame.payload {
+                // Each CHUNK payload MUST be valid CBOR - decode it
+                guard let value = try? CBOR.decode([UInt8](payload)) else {
+                    throw CborPluginRuntimeError.handlerError("Invalid CBOR in CHUNK")
+                }
+                chunks.append(value)
+            }
+        case .end:
+            break
+        case .err:
+            let code = frame.errorCode ?? "UNKNOWN"
+            let message = frame.errorMessage ?? "Unknown error"
+            throw CborPluginRuntimeError.peerRequestError("[\(code)] \(message)")
+        default:
+            continue
+        }
+    }
+
+    // Reconstruct value from chunks
+    if chunks.isEmpty {
+        throw CborPluginRuntimeError.handlerError("No chunks received")
+    } else if chunks.count == 1 {
+        // Single chunk - return value as-is
+        return chunks[0]
+    } else {
+        // Multiple chunks - concatenate bytes/strings, or collect array elements
+        switch chunks[0] {
+        case .byteString:
+            // Concatenate all byte chunks
+            var result = Data()
+            for chunk in chunks {
+                if case .byteString(let bytes) = chunk {
+                    result.append(Data(bytes))
+                } else {
+                    throw CborPluginRuntimeError.handlerError("Mixed chunk types")
+                }
+            }
+            return .byteString([UInt8](result))
+        case .utf8String:
+            // Concatenate all string chunks
+            var result = ""
+            for chunk in chunks {
+                if case .utf8String(let text) = chunk {
+                    result += text
+                } else {
+                    throw CborPluginRuntimeError.handlerError("Mixed chunk types")
+                }
+            }
+            return .utf8String(result)
+        default:
+            // For other types (Integer, Array elements), collect as array
+            return .array(chunks)
+        }
+    }
+}
+
+// MARK: - Handlers
+
+func handleEcho(stream: AsyncStream<CborFrame>, emitter: CborStreamEmitter, peer: CborPeerInvoker) async throws -> Void {
+    let payload = try await collectPayload(from: stream)
+    try emitter.emitCbor(.byteString([UInt8](payload)))
+}
+
+func handleDouble(stream: AsyncStream<CborFrame>, emitter: CborStreamEmitter, peer: CborPeerInvoker) async throws -> Void {
+    let payload = try await collectPayload(from: stream)
     let json = try JSONSerialization.jsonObject(with: payload) as! [String: Any]
     let value = json["value"] as! Int
     let result = value * 2
-    // NSJSONSerialization rejects bare scalars — encode directly as JSON number bytes
-    return Data("\(result)".utf8)
+    // Return as CBOR integer (per protocol: int sent as single chunk)
+    try emitter.emitCbor(.unsignedInt(UInt64(result)))
 }
 
-func handleStreamChunks(payload: Data, emitter: CborStreamEmitter, peer: CborPeerInvoker) throws -> Data {
+func handleStreamChunks(stream: AsyncStream<CborFrame>, emitter: CborStreamEmitter, peer: CborPeerInvoker) async throws -> Void {
+    let payload = try await collectPayload(from: stream)
     let json = try JSONSerialization.jsonObject(with: payload) as! [String: Any]
     let count = json["value"] as! Int
 
     for i in 0..<count {
         let chunk = "chunk-\(i)".data(using: .utf8)!
-        try emitter.emit(value: "chunk-\(i)")
+        try emitter.emitCbor(.byteString([UInt8](chunk)))
     }
 
-    return "done".data(using: .utf8)!
+    try emitter.emitCbor(.byteString([UInt8]("done".data(using: .utf8)!)))
 }
 
-func handleBinaryEcho(payload: Data, emitter: CborStreamEmitter, peer: CborPeerInvoker) throws -> Data {
-    return payload
+func handleBinaryEcho(stream: AsyncStream<CborFrame>, emitter: CborStreamEmitter, peer: CborPeerInvoker) async throws -> Void {
+    let payload = try await collectPayload(from: stream)
+    try emitter.emitCbor(.byteString([UInt8](payload)))
 }
 
-func handleSlowResponse(payload: Data, emitter: CborStreamEmitter, peer: CborPeerInvoker) throws -> Data {
+func handleSlowResponse(stream: AsyncStream<CborFrame>, emitter: CborStreamEmitter, peer: CborPeerInvoker) async throws -> Void {
+    let payload = try await collectPayload(from: stream)
     let json = try JSONSerialization.jsonObject(with: payload) as! [String: Any]
     let sleepMs = json["value"] as! Int
 
-    Thread.sleep(forTimeInterval: Double(sleepMs) / 1000.0)
+    try await Task.sleep(nanoseconds: UInt64(sleepMs) * 1_000_000)
 
     let response = "slept-\(sleepMs)ms"
-    return response.data(using: .utf8)!
+    try emitter.emitCbor(.byteString([UInt8](response.data(using: .utf8)!)))
 }
 
-func handleGenerateLarge(payload: Data, emitter: CborStreamEmitter, peer: CborPeerInvoker) throws -> Data {
+func handleGenerateLarge(stream: AsyncStream<CborFrame>, emitter: CborStreamEmitter, peer: CborPeerInvoker) async throws -> Void {
+    let payload = try await collectPayload(from: stream)
     let json = try JSONSerialization.jsonObject(with: payload) as! [String: Any]
     let size = json["value"] as! Int
 
@@ -173,81 +273,92 @@ func handleGenerateLarge(payload: Data, emitter: CborStreamEmitter, peer: CborPe
         result.append(pattern[i % pattern.count])
     }
 
-    return result
+    try emitter.emitCbor(.byteString([UInt8](result)))
 }
 
-func handleWithStatus(payload: Data, emitter: CborStreamEmitter, peer: CborPeerInvoker) throws -> Data {
+func handleWithStatus(stream: AsyncStream<CborFrame>, emitter: CborStreamEmitter, peer: CborPeerInvoker) async throws -> Void {
+    let payload = try await collectPayload(from: stream)
     let json = try JSONSerialization.jsonObject(with: payload) as! [String: Any]
     let steps = json["value"] as! Int
 
     for i in 0..<steps {
         let status = "step \(i)"
-        emitter.emitStatus(operation: "processing", details: status)
-        Thread.sleep(forTimeInterval: 0.01)
+        emitter.emitLog(level: "info", message: "processing: \(status)")
+        try await Task.sleep(nanoseconds: 10_000_000) // 10ms
     }
 
-    return "completed".data(using: .utf8)!
+    try emitter.emitCbor(.byteString([UInt8]("completed".data(using: .utf8)!)))
 }
 
-func handleThrowError(payload: Data, emitter: CborStreamEmitter, peer: CborPeerInvoker) throws -> Data {
+func handleThrowError(stream: AsyncStream<CborFrame>, emitter: CborStreamEmitter, peer: CborPeerInvoker) async throws -> Void {
+    let payload = try await collectPayload(from: stream)
     let json = try JSONSerialization.jsonObject(with: payload) as! [String: Any]
     let message = json["value"] as! String
     throw NSError(domain: "InteropTestError", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
 }
 
-func handlePeerEcho(payload: Data, emitter: CborStreamEmitter, peer: CborPeerInvoker) throws -> Data {
+func handlePeerEcho(stream: AsyncStream<CborFrame>, emitter: CborStreamEmitter, peer: CborPeerInvoker) async throws -> Void {
+    let payload = try await collectPayload(from: stream)
     // Call host's echo capability
     let arg = CborCapArgumentValue(mediaUrn: "media:bytes", value: payload)
-    let chunks = try peer.invoke(capUrn: "cap:in=*;op=echo;out=*", arguments: [arg])
+    let peerFrames = try peer.invoke(capUrn: "cap:in=*;op=echo;out=*", arguments: [arg])
 
-    var result = Data()
-    for chunkResult in chunks {
-        let chunk = try chunkResult.get()
-        result.append(chunk)
-    }
+    // Collect and decode peer response
+    let cborValue = try await collectPeerResponse(from: peerFrames)
 
-    return result
+    // Re-emit (consumption → production)
+    try emitter.emitCbor(cborValue)
 }
 
-func handleNestedCall(payload: Data, emitter: CborStreamEmitter, peer: CborPeerInvoker) throws -> Data {
+func handleNestedCall(stream: AsyncStream<CborFrame>, emitter: CborStreamEmitter, peer: CborPeerInvoker) async throws -> Void {
+    let payload = try await collectPayload(from: stream)
     let json = try JSONSerialization.jsonObject(with: payload) as! [String: Any]
     let value = json["value"] as! Int
 
     // Call host's double capability
     let inputData = try JSONSerialization.data(withJSONObject: ["value": value])
     let arg = CborCapArgumentValue(mediaUrn: "media:json", value: inputData)
-    let chunks = try peer.invoke(capUrn: "cap:in=*;op=double;out=*", arguments: [arg])
+    let peerFrames = try peer.invoke(capUrn: "cap:in=*;op=double;out=*", arguments: [arg])
 
-    var resultBytes = Data()
-    for chunkResult in chunks {
-        let chunk = try chunkResult.get()
-        resultBytes.append(chunk)
+    // Collect and decode peer response
+    let cborValue = try await collectPeerResponse(from: peerFrames)
+
+    // Extract integer from response
+    let hostResult: Int
+    switch cborValue {
+    case .unsignedInt(let val):
+        hostResult = Int(val)
+    case .negativeInt(let val):
+        hostResult = -Int(val) - 1
+    default:
+        throw CborPluginRuntimeError.handlerError("Expected integer from double")
     }
-
-    let hostResult = try JSONSerialization.jsonObject(with: resultBytes, options: .allowFragments) as! Int
 
     // Double again locally
     let finalResult = hostResult * 2
 
-    return try JSONSerialization.data(withJSONObject: finalResult, options: .fragmentsAllowed)
+    let finalData = try JSONSerialization.data(withJSONObject: finalResult, options: .fragmentsAllowed)
+    try emitter.emitCbor(.byteString([UInt8](finalData)))
 }
 
-func handleHeartbeatStress(payload: Data, emitter: CborStreamEmitter, peer: CborPeerInvoker) throws -> Data {
+func handleHeartbeatStress(stream: AsyncStream<CborFrame>, emitter: CborStreamEmitter, peer: CborPeerInvoker) async throws -> Void {
+    let payload = try await collectPayload(from: stream)
     let json = try JSONSerialization.jsonObject(with: payload) as! [String: Any]
     let durationMs = json["value"] as! Int
 
     // Sleep in small chunks to allow heartbeat processing
     let chunks = durationMs / 100
     for _ in 0..<chunks {
-        Thread.sleep(forTimeInterval: 0.1)
+        try await Task.sleep(nanoseconds: 100_000_000) // 100ms
     }
-    Thread.sleep(forTimeInterval: Double(durationMs % 100) / 1000.0)
+    try await Task.sleep(nanoseconds: UInt64(durationMs % 100) * 1_000_000)
 
     let response = "stressed-\(durationMs)ms"
-    return response.data(using: .utf8)!
+    try emitter.emitCbor(.byteString([UInt8](response.data(using: .utf8)!)))
 }
 
-func handleConcurrentStress(payload: Data, emitter: CborStreamEmitter, peer: CborPeerInvoker) throws -> Data {
+func handleConcurrentStress(stream: AsyncStream<CborFrame>, emitter: CborStreamEmitter, peer: CborPeerInvoker) async throws -> Void {
+    let payload = try await collectPayload(from: stream)
     let json = try JSONSerialization.jsonObject(with: payload) as! [String: Any]
     let workUnits = json["value"] as! Int
 
@@ -258,15 +369,18 @@ func handleConcurrentStress(payload: Data, emitter: CborStreamEmitter, peer: Cbo
     }
 
     let response = "computed-\(sum)"
-    return response.data(using: .utf8)!
+    try emitter.emitCbor(.byteString([UInt8](response.data(using: .utf8)!)))
 }
 
-func handleGetManifest(payload: Data, emitter: CborStreamEmitter, peer: CborPeerInvoker) throws -> Data {
+func handleGetManifest(stream: AsyncStream<CborFrame>, emitter: CborStreamEmitter, peer: CborPeerInvoker) async throws -> Void {
+    _ = try await collectPayload(from: stream)
     let manifest = buildManifest()
-    return try JSONSerialization.data(withJSONObject: manifest)
+    let resultData = try JSONSerialization.data(withJSONObject: manifest)
+    try emitter.emitCbor(.byteString([UInt8](resultData)))
 }
 
-func handleProcessLarge(payload: Data, emitter: CborStreamEmitter, peer: CborPeerInvoker) throws -> Data {
+func handleProcessLarge(stream: AsyncStream<CborFrame>, emitter: CborStreamEmitter, peer: CborPeerInvoker) async throws -> Void {
+    let payload = try await collectPayload(from: stream)
     let size = payload.count
     let hash = SHA256.hash(data: payload)
     let checksum = hash.compactMap { String(format: "%02x", $0) }.joined()
@@ -276,16 +390,19 @@ func handleProcessLarge(payload: Data, emitter: CborStreamEmitter, peer: CborPee
         "checksum": checksum
     ]
 
-    return try JSONSerialization.data(withJSONObject: result)
+    let resultData = try JSONSerialization.data(withJSONObject: result)
+    try emitter.emitCbor(.byteString([UInt8](resultData)))
 }
 
-func handleHashIncoming(payload: Data, emitter: CborStreamEmitter, peer: CborPeerInvoker) throws -> Data {
+func handleHashIncoming(stream: AsyncStream<CborFrame>, emitter: CborStreamEmitter, peer: CborPeerInvoker) async throws -> Void {
+    let payload = try await collectPayload(from: stream)
     let hash = SHA256.hash(data: payload)
     let checksum = hash.compactMap { String(format: "%02x", $0) }.joined()
-    return checksum.data(using: .utf8)!
+    try emitter.emitCbor(.byteString([UInt8](checksum.data(using: .utf8)!)))
 }
 
-func handleVerifyBinary(payload: Data, emitter: CborStreamEmitter, peer: CborPeerInvoker) throws -> Data {
+func handleVerifyBinary(stream: AsyncStream<CborFrame>, emitter: CborStreamEmitter, peer: CborPeerInvoker) async throws -> Void {
+    let payload = try await collectPayload(from: stream)
     var present = Set<UInt8>()
 
     for byte in payload {
@@ -293,16 +410,17 @@ func handleVerifyBinary(payload: Data, emitter: CborStreamEmitter, peer: CborPee
     }
 
     if present.count == 256 {
-        return "ok".data(using: .utf8)!
+        try emitter.emitCbor(.byteString([UInt8]("ok".data(using: .utf8)!)))
     } else {
         let missing = (0...255).filter { !present.contains(UInt8($0)) }
         let message = "missing \(missing.count) values"
-        return message.data(using: .utf8)!
+        try emitter.emitCbor(.byteString([UInt8](message.data(using: .utf8)!)))
     }
 }
 
-func handleReadFileInfo(payload: Data, emitter: CborStreamEmitter, peer: CborPeerInvoker) throws -> Data {
+func handleReadFileInfo(stream: AsyncStream<CborFrame>, emitter: CborStreamEmitter, peer: CborPeerInvoker) async throws -> Void {
     // Payload is already file bytes (auto-converted by runtime from file-path)
+    let payload = try await collectPayload(from: stream)
     let size = payload.count
     let hash = SHA256.hash(data: payload)
     let checksum = hash.compactMap { String(format: "%02x", $0) }.joined()
@@ -312,7 +430,8 @@ func handleReadFileInfo(payload: Data, emitter: CborStreamEmitter, peer: CborPee
         "checksum": checksum
     ]
 
-    return try JSONSerialization.data(withJSONObject: result)
+    let resultData = try JSONSerialization.data(withJSONObject: result)
+    try emitter.emitCbor(.byteString([UInt8](resultData)))
 }
 
 // MARK: - Main
@@ -320,23 +439,23 @@ func handleReadFileInfo(payload: Data, emitter: CborStreamEmitter, peer: CborPee
 let manifestJSON = buildManifestJSON()
 let runtime = try! CborPluginRuntime(manifestJSON: manifestJSON)
 
-// Register all handlers with exact URNs
-runtime.register(capUrn: "cap:in=\"media:string;textable;form=scalar\";op=echo;out=\"media:string;textable;form=scalar\"", handler: handleEcho)
-runtime.register(capUrn: "cap:in=\"media:number;form=scalar\";op=double;out=\"media:number;form=scalar\"", handler: handleDouble)
-runtime.register(capUrn: "cap:in=\"media:number;form=scalar\";op=stream_chunks;out=\"media:string;textable;streamable\"", handler: handleStreamChunks)
-runtime.register(capUrn: "cap:in=\"media:bytes\";op=binary_echo;out=\"media:bytes\"", handler: handleBinaryEcho)
-runtime.register(capUrn: "cap:in=\"media:number;form=scalar\";op=slow_response;out=\"media:string;textable;form=scalar\"", handler: handleSlowResponse)
-runtime.register(capUrn: "cap:in=\"media:number;form=scalar\";op=generate_large;out=\"media:bytes\"", handler: handleGenerateLarge)
-runtime.register(capUrn: "cap:in=\"media:number;form=scalar\";op=with_status;out=\"media:string;textable;form=scalar\"", handler: handleWithStatus)
-runtime.register(capUrn: "cap:in=\"media:string;textable;form=scalar\";op=throw_error;out=\"media:void\"", handler: handleThrowError)
-runtime.register(capUrn: "cap:in=\"media:string;textable;form=scalar\";op=peer_echo;out=\"media:string;textable;form=scalar\"", handler: handlePeerEcho)
-runtime.register(capUrn: "cap:in=\"media:number;form=scalar\";op=nested_call;out=\"media:string;textable;form=scalar\"", handler: handleNestedCall)
-runtime.register(capUrn: "cap:in=\"media:number;form=scalar\";op=heartbeat_stress;out=\"media:string;textable;form=scalar\"", handler: handleHeartbeatStress)
-runtime.register(capUrn: "cap:in=\"media:number;form=scalar\";op=concurrent_stress;out=\"media:string;textable;form=scalar\"", handler: handleConcurrentStress)
-runtime.register(capUrn: "cap:in=\"media:void\";op=get_manifest;out=\"media:json\"", handler: handleGetManifest)
-runtime.register(capUrn: "cap:in=\"media:bytes\";op=process_large;out=\"media:json\"", handler: handleProcessLarge)
-runtime.register(capUrn: "cap:in=\"media:bytes\";op=hash_incoming;out=\"media:string;textable;form=scalar\"", handler: handleHashIncoming)
-runtime.register(capUrn: "cap:in=\"media:bytes\";op=verify_binary;out=\"media:string;textable;form=scalar\"", handler: handleVerifyBinary)
-runtime.register(capUrn: "cap:in=\"media:bytes\";op=read_file_info;out=\"media:json\"", handler: handleReadFileInfo)
+// Register all handlers with exact URNs using registerRaw
+runtime.registerRaw(capUrn: "cap:in=\"media:string;textable;form=scalar\";op=echo;out=\"media:string;textable;form=scalar\"", handler: handleEcho)
+runtime.registerRaw(capUrn: "cap:in=\"media:number;form=scalar\";op=double;out=\"media:number;form=scalar\"", handler: handleDouble)
+runtime.registerRaw(capUrn: "cap:in=\"media:number;form=scalar\";op=stream_chunks;out=\"media:string;textable;streamable\"", handler: handleStreamChunks)
+runtime.registerRaw(capUrn: "cap:in=\"media:bytes\";op=binary_echo;out=\"media:bytes\"", handler: handleBinaryEcho)
+runtime.registerRaw(capUrn: "cap:in=\"media:number;form=scalar\";op=slow_response;out=\"media:string;textable;form=scalar\"", handler: handleSlowResponse)
+runtime.registerRaw(capUrn: "cap:in=\"media:number;form=scalar\";op=generate_large;out=\"media:bytes\"", handler: handleGenerateLarge)
+runtime.registerRaw(capUrn: "cap:in=\"media:number;form=scalar\";op=with_status;out=\"media:string;textable;form=scalar\"", handler: handleWithStatus)
+runtime.registerRaw(capUrn: "cap:in=\"media:string;textable;form=scalar\";op=throw_error;out=\"media:void\"", handler: handleThrowError)
+runtime.registerRaw(capUrn: "cap:in=\"media:string;textable;form=scalar\";op=peer_echo;out=\"media:string;textable;form=scalar\"", handler: handlePeerEcho)
+runtime.registerRaw(capUrn: "cap:in=\"media:number;form=scalar\";op=nested_call;out=\"media:string;textable;form=scalar\"", handler: handleNestedCall)
+runtime.registerRaw(capUrn: "cap:in=\"media:number;form=scalar\";op=heartbeat_stress;out=\"media:string;textable;form=scalar\"", handler: handleHeartbeatStress)
+runtime.registerRaw(capUrn: "cap:in=\"media:number;form=scalar\";op=concurrent_stress;out=\"media:string;textable;form=scalar\"", handler: handleConcurrentStress)
+runtime.registerRaw(capUrn: "cap:in=\"media:void\";op=get_manifest;out=\"media:json\"", handler: handleGetManifest)
+runtime.registerRaw(capUrn: "cap:in=\"media:bytes\";op=process_large;out=\"media:json\"", handler: handleProcessLarge)
+runtime.registerRaw(capUrn: "cap:in=\"media:bytes\";op=hash_incoming;out=\"media:string;textable;form=scalar\"", handler: handleHashIncoming)
+runtime.registerRaw(capUrn: "cap:in=\"media:bytes\";op=verify_binary;out=\"media:string;textable;form=scalar\"", handler: handleVerifyBinary)
+runtime.registerRaw(capUrn: "cap:in=\"media:bytes\";op=read_file_info;out=\"media:json\"", handler: handleReadFileInfo)
 
 try! runtime.run()

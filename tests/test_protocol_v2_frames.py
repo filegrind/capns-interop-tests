@@ -201,9 +201,15 @@ def test_frame_type_from_u8_returns_stream_types():
     assert FrameType.from_u8(9) == FrameType.STREAM_END
 
 
-def test_frame_type_from_u8_rejects_10():
-    """Test FrameType.from_u8 returns None for value 10 (one past STREAM_END)."""
-    assert FrameType.from_u8(10) is None
+def test_frame_type_from_u8_accepts_relay_frames():
+    """Test FrameType.from_u8 accepts RELAY_NOTIFY (10) and RELAY_STATE (11)."""
+    assert FrameType.from_u8(10) == FrameType.RELAY_NOTIFY
+    assert FrameType.from_u8(11) == FrameType.RELAY_STATE
+
+
+def test_frame_type_from_u8_rejects_12():
+    """Test FrameType.from_u8 returns None for value 12 (one past RELAY_STATE)."""
+    assert FrameType.from_u8(12) is None
 
 
 @pytest.mark.asyncio

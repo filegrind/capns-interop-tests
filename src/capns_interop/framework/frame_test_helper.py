@@ -34,14 +34,42 @@ def send_request(
     content_type: str = "application/octet-stream",
     media_urn: str = "media:bytes",
 ) -> None:
-    """Send a complete request: REQ(empty) + STREAM_START + CHUNK + STREAM_END + END.
+    """Send a complete request: REQ(empty) + STREAM_START + CHUNK(s) + STREAM_END + END.
 
     REQ must have empty payload per protocol v2. Arguments go via streaming.
+    Large payloads are automatically chunked according to protocol limits.
+
+    PROTOCOL: Each CHUNK payload MUST be a complete, independently decodable CBOR value.
+    Raw bytes are CBOR-encoded as byte strings before being sent in CHUNK frames.
     """
+    import cbor2
+
+    # Use negotiated max_chunk from default limits (256KB)
+    max_chunk = Limits.default().max_chunk
+
     writer.write(Frame.req(req_id, cap_urn, b"", content_type))
     stream_id = "arg-0"
     writer.write(Frame.stream_start(req_id, stream_id, media_urn))
-    writer.write(Frame.chunk(req_id, stream_id, 0, payload))
+
+    # Chunk large payloads and CBOR-encode each chunk
+    offset = 0
+    seq = 0
+    while offset < len(payload):
+        chunk_size = min(max_chunk, len(payload) - offset)
+        chunk_bytes = payload[offset:offset + chunk_size]
+
+        # CBOR-encode chunk as byte string - independently decodable
+        cbor_payload = cbor2.dumps(chunk_bytes)
+
+        writer.write(Frame.chunk(req_id, stream_id, seq, cbor_payload))
+        offset += chunk_size
+        seq += 1
+
+    # Send at least one CHUNK even for empty payload (to match protocol)
+    if len(payload) == 0:
+        cbor_payload = cbor2.dumps(b"")
+        writer.write(Frame.chunk(req_id, stream_id, 0, cbor_payload))
+
     writer.write(Frame.stream_end(req_id, stream_id))
     writer.write(Frame.end(req_id))
 
@@ -57,24 +85,63 @@ def send_simple_request(
     writer.write(Frame.end(req_id))
 
 
-def read_response(reader: FrameReader, timeout_frames: int = 100) -> Tuple[bytes, List[Frame]]:
+def read_response(reader: FrameReader, timeout_frames: int = 100):
     """Read a complete response, collecting all frames until END or ERR.
 
+    Each CHUNK payload MUST be a complete, independently decodable CBOR value.
+    This decodes each chunk and reconstructs the final value according to protocol:
+    - Bytes/Text: multiple chunks concatenated
+    - Int/Float/Bool/Null: single chunk, return value
+    - Array: multiple chunks (each is element), collect to list
+    - Map: multiple chunks (each is [key, value]), collect to dict
+
+    FAILS HARD if any chunk is not valid CBOR - no fallbacks.
+
     Returns:
-        (concatenated_chunk_data, all_frames)
+        (reconstructed_value, all_frames) where value can be any CBOR type
     """
-    chunks = bytearray()
+    import cbor2
+    chunks = []
     frames = []
     for _ in range(timeout_frames):
         frame = reader.read()
         if frame is None:
             break
         frames.append(frame)
-        if frame.frame_type == FrameType.CHUNK:
-            chunks.extend(frame.payload or b"")
+        if frame.frame_type == FrameType.CHUNK and frame.payload:
+            # Each CHUNK MUST be independently decodable - fail hard if not
+            decoded = cbor2.loads(frame.payload)  # No try/except - fail on invalid CBOR
+            chunks.append(decoded)
         if frame.frame_type in (FrameType.END, FrameType.ERR):
             break
-    return bytes(chunks), frames
+
+    # Reconstruct value from chunks according to protocol
+    if not chunks:
+        return b'', frames
+    elif len(chunks) == 1:
+        # Single chunk: return value as-is (int/float/bool/null/bytes/text/etc)
+        return chunks[0], frames
+    else:
+        # Multiple chunks: reconstruct based on type
+        first = chunks[0]
+        if isinstance(first, bytes):
+            # Bytes: concatenate all chunks
+            result = b''.join(c for c in chunks if isinstance(c, bytes))
+            return result, frames
+        elif isinstance(first, str):
+            # Text: concatenate all chunks
+            result = ''.join(c for c in chunks if isinstance(c, str))
+            return result, frames
+        elif isinstance(first, list) and len(first) == 2:
+            # Map chunks: each chunk is [key, value] pair
+            result = {}
+            for chunk in chunks:
+                if isinstance(chunk, list) and len(chunk) == 2:
+                    result[chunk[0]] = chunk[1]
+            return result, frames
+        else:
+            # Array chunks: each chunk is an element
+            return chunks, frames
 
 
 def read_until_frame_type(reader: FrameReader, target: FrameType, max_frames: int = 50) -> Optional[Frame]:
@@ -89,15 +156,13 @@ def read_until_frame_type(reader: FrameReader, target: FrameType, max_frames: in
 
 
 def decode_cbor_response(raw_chunks: bytes) -> bytes:
-    """Decode CBOR byte string from response chunks.
+    """Decode CBOR value from response chunks.
 
-    Plugin handlers emit CBOR-encoded byteStrings. This extracts the raw bytes.
+    With new protocol, this is rarely needed since read_response() decodes chunks.
+    FAILS HARD if not valid CBOR - no fallbacks.
     """
     import cbor2
-    try:
-        return cbor2.loads(raw_chunks)
-    except Exception:
-        return raw_chunks
+    return cbor2.loads(raw_chunks)  # No try/except - fail on invalid CBOR
 
 
 class HostProcess:

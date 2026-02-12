@@ -7,8 +7,115 @@ import (
 	"fmt"
 	"time"
 
+	cborlib "github.com/fxamacker/cbor/v2"
+
 	capns "github.com/filegrind/capns-go"
+	"github.com/filegrind/capns-go/cbor"
 )
+
+// collectPayload reads all CHUNK frames, decodes each as CBOR, and accumulates bytes
+// PROTOCOL: Each CHUNK payload is a complete, independently decodable CBOR value
+// For []byte values, extract and concatenate the bytes
+// For string values, extract and concatenate as UTF-8 bytes
+func collectPayload(frames <-chan cbor.Frame) []byte {
+	var accumulated []byte
+	for frame := range frames {
+		switch frame.FrameType {
+		case cbor.FrameTypeChunk:
+			if frame.Payload != nil {
+				// Each CHUNK payload MUST be valid CBOR - decode it
+				var value interface{}
+				if err := cborlib.Unmarshal(frame.Payload, &value); err != nil {
+					panic(fmt.Sprintf("CHUNK payload must be valid CBOR: %v", err))
+				}
+
+				// Extract bytes from CBOR value
+				switch v := value.(type) {
+				case []byte:
+					accumulated = append(accumulated, v...)
+				case string:
+					accumulated = append(accumulated, []byte(v)...)
+				default:
+					panic(fmt.Sprintf("Unexpected CBOR type in CHUNK: expected []byte or string, got %T", v))
+				}
+			}
+		case cbor.FrameTypeEnd:
+			return accumulated
+		}
+	}
+	return accumulated
+}
+
+// collectPeerResponse reads peer response frames, decodes each CHUNK as CBOR, and reconstructs value
+// For simple values (bytes/string/int), there's typically one chunk
+// For arrays/maps, multiple chunks are combined
+func collectPeerResponse(peerFrames <-chan cbor.Frame) (interface{}, error) {
+	var chunks []interface{}
+	for frame := range peerFrames {
+		switch frame.FrameType {
+		case cbor.FrameTypeChunk:
+			if frame.Payload != nil {
+				// Each CHUNK payload MUST be valid CBOR - decode it
+				var value interface{}
+				if err := cborlib.Unmarshal(frame.Payload, &value); err != nil {
+					return nil, fmt.Errorf("invalid CBOR in CHUNK: %w", err)
+				}
+				chunks = append(chunks, value)
+			}
+		case cbor.FrameTypeEnd:
+			goto reconstruct
+		case cbor.FrameTypeErr:
+			code := frame.ErrorCode()
+			message := frame.ErrorMessage()
+			if code == "" {
+				code = "UNKNOWN"
+			}
+			if message == "" {
+				message = "Unknown error"
+			}
+			return nil, fmt.Errorf("[%s] %s", code, message)
+		}
+	}
+
+reconstruct:
+	// Reconstruct value from chunks
+	if len(chunks) == 0 {
+		return nil, fmt.Errorf("no chunks received")
+	} else if len(chunks) == 1 {
+		// Single chunk - return value as-is
+		return chunks[0], nil
+	} else {
+		// Multiple chunks - concatenate bytes/strings, or collect array elements
+		first := chunks[0]
+		switch first.(type) {
+		case []byte:
+			// Concatenate all byte chunks
+			var result []byte
+			for _, chunk := range chunks {
+				if bytes, ok := chunk.([]byte); ok {
+					result = append(result, bytes...)
+				} else {
+					return nil, fmt.Errorf("mixed chunk types")
+				}
+			}
+			return result, nil
+		case string:
+			// Concatenate all string chunks
+			var result string
+			for _, chunk := range chunks {
+				if str, ok := chunk.(string); ok {
+					result += str
+				} else {
+					return nil, fmt.Errorf("mixed chunk types")
+				}
+			}
+			return result, nil
+		default:
+			// For other types (Integer, Array elements), collect as array
+			return chunks, nil
+		}
+	}
+}
 
 func buildManifest() *capns.CapManifest {
 	mustBuild := func(b *capns.CapUrnBuilder) *capns.CapUrn {
@@ -184,12 +291,14 @@ func parseValueRequest(payload []byte) (valueRequest, error) {
 	return req, nil
 }
 
-func handleEcho(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
-	emitter.Emit(payload)
+func handleEcho(frames <-chan cbor.Frame, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
+	payload := collectPayload(frames)
+	emitter.EmitCbor(payload)
 	return nil
 }
 
-func handleDouble(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
+func handleDouble(frames <-chan cbor.Frame, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
+	payload := collectPayload(frames)
 	req, err := parseValueRequest(payload)
 	if err != nil {
 		return err
@@ -205,11 +314,12 @@ func handleDouble(payload []byte, emitter capns.StreamEmitter, peer capns.PeerIn
 	if err != nil {
 		return err
 	}
-	emitter.Emit(resultBytes)
+	emitter.EmitCbor(resultBytes)
 	return nil
 }
 
-func handleStreamChunks(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
+func handleStreamChunks(frames <-chan cbor.Frame, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
+	payload := collectPayload(frames)
 	req, err := parseValueRequest(payload)
 	if err != nil {
 		return err
@@ -222,19 +332,21 @@ func handleStreamChunks(payload []byte, emitter capns.StreamEmitter, peer capns.
 
 	for i := uint64(0); i < count; i++ {
 		chunk := fmt.Sprintf("chunk-%d", i)
-		emitter.Emit([]byte(chunk))
+		emitter.EmitCbor([]byte(chunk))
 	}
 
-	emitter.Emit([]byte("done"))
+	emitter.EmitCbor([]byte("done"))
 	return nil
 }
 
-func handleBinaryEcho(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
-	emitter.Emit(payload)
+func handleBinaryEcho(frames <-chan cbor.Frame, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
+	payload := collectPayload(frames)
+	emitter.EmitCbor(payload)
 	return nil
 }
 
-func handleSlowResponse(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
+func handleSlowResponse(frames <-chan cbor.Frame, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
+	payload := collectPayload(frames)
 	req, err := parseValueRequest(payload)
 	if err != nil {
 		return err
@@ -248,11 +360,12 @@ func handleSlowResponse(payload []byte, emitter capns.StreamEmitter, peer capns.
 	time.Sleep(time.Duration(sleepMs) * time.Millisecond)
 
 	response := fmt.Sprintf("slept-%dms", sleepMs)
-	emitter.Emit([]byte(response))
+	emitter.EmitCbor([]byte(response))
 	return nil
 }
 
-func handleGenerateLarge(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
+func handleGenerateLarge(frames <-chan cbor.Frame, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
+	payload := collectPayload(frames)
 	req, err := parseValueRequest(payload)
 	if err != nil {
 		return err
@@ -269,11 +382,12 @@ func handleGenerateLarge(payload []byte, emitter capns.StreamEmitter, peer capns
 		result[i] = pattern[i%uint64(len(pattern))]
 	}
 
-	emitter.Emit(result)
+	emitter.EmitCbor(result)
 	return nil
 }
 
-func handleWithStatus(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
+func handleWithStatus(frames <-chan cbor.Frame, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
+	payload := collectPayload(frames)
 	req, err := parseValueRequest(payload)
 	if err != nil {
 		return err
@@ -286,15 +400,16 @@ func handleWithStatus(payload []byte, emitter capns.StreamEmitter, peer capns.Pe
 
 	for i := uint64(0); i < steps; i++ {
 		status := fmt.Sprintf("step %d", i)
-		emitter.EmitStatus("processing", status)
+		emitter.EmitLog("processing", status)
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	emitter.Emit([]byte("completed"))
+	emitter.EmitCbor([]byte("completed"))
 	return nil
 }
 
-func handleThrowError(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
+func handleThrowError(frames <-chan cbor.Frame, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
+	payload := collectPayload(frames)
 	req, err := parseValueRequest(payload)
 	if err != nil {
 		return err
@@ -308,31 +423,30 @@ func handleThrowError(payload []byte, emitter capns.StreamEmitter, peer capns.Pe
 	return fmt.Errorf("%s", message)
 }
 
-func handlePeerEcho(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
+func handlePeerEcho(frames <-chan cbor.Frame, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
+	payload := collectPayload(frames)
 	// Call host's echo capability
 	args := []capns.CapArgumentValue{
 		capns.NewCapArgumentValue("media:bytes", payload),
 	}
 
-	rx, err := peer.Invoke(`cap:in=*;op=echo;out=*`, args)
+	peerFrames, err := peer.Invoke(`cap:in=*;op=echo;out=*`, args)
 	if err != nil {
 		return fmt.Errorf("peer invoke failed: %w", err)
 	}
 
-	// Collect response
-	var result []byte
-	for chunk := range rx {
-		if chunk.Error != nil {
-			return chunk.Error
-		}
-		result = append(result, chunk.Data...)
+	// Collect and decode peer response
+	cborValue, err := collectPeerResponse(peerFrames)
+	if err != nil {
+		return err
 	}
 
-	emitter.Emit(result)
-	return nil
+	// Re-emit (consumption → production)
+	return emitter.EmitCbor(cborValue)
 }
 
-func handleNestedCall(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
+func handleNestedCall(frames <-chan cbor.Frame, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
+	payload := collectPayload(frames)
 	req, err := parseValueRequest(payload)
 	if err != nil {
 		return err
@@ -352,23 +466,28 @@ func handleNestedCall(payload []byte, emitter capns.StreamEmitter, peer capns.Pe
 		capns.NewCapArgumentValue("media:json", input),
 	}
 
-	rx, err := peer.Invoke(`cap:in=*;op=double;out=*`, args)
+	peerFrames, err := peer.Invoke(`cap:in=*;op=double;out=*`, args)
 	if err != nil {
 		return fmt.Errorf("peer invoke failed: %w", err)
 	}
 
-	// Collect response
-	var resultBytes []byte
-	for chunk := range rx {
-		if chunk.Error != nil {
-			return chunk.Error
-		}
-		resultBytes = append(resultBytes, chunk.Data...)
+	// Collect and decode peer response
+	cborValue, err := collectPeerResponse(peerFrames)
+	if err != nil {
+		return err
 	}
 
+	// Extract integer from response
 	var hostResult uint64
-	if err := json.Unmarshal(resultBytes, &hostResult); err != nil {
-		return fmt.Errorf("failed to parse host result: %w", err)
+	switch v := cborValue.(type) {
+	case uint64:
+		hostResult = v
+	case int64:
+		hostResult = uint64(v)
+	case int:
+		hostResult = uint64(v)
+	default:
+		return fmt.Errorf("expected integer from double, got %T", v)
 	}
 
 	// Double again locally
@@ -379,11 +498,12 @@ func handleNestedCall(payload []byte, emitter capns.StreamEmitter, peer capns.Pe
 		return err
 	}
 
-	emitter.Emit(finalBytes)
+	emitter.EmitCbor(finalBytes)
 	return nil
 }
 
-func handleHeartbeatStress(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
+func handleHeartbeatStress(frames <-chan cbor.Frame, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
+	payload := collectPayload(frames)
 	req, err := parseValueRequest(payload)
 	if err != nil {
 		return err
@@ -402,11 +522,12 @@ func handleHeartbeatStress(payload []byte, emitter capns.StreamEmitter, peer cap
 	time.Sleep(time.Duration(durationMs%100) * time.Millisecond)
 
 	response := fmt.Sprintf("stressed-%dms", durationMs)
-	emitter.Emit([]byte(response))
+	emitter.EmitCbor([]byte(response))
 	return nil
 }
 
-func handleConcurrentStress(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
+func handleConcurrentStress(frames <-chan cbor.Frame, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
+	payload := collectPayload(frames)
 	req, err := parseValueRequest(payload)
 	if err != nil {
 		return err
@@ -424,22 +545,24 @@ func handleConcurrentStress(payload []byte, emitter capns.StreamEmitter, peer ca
 	}
 
 	response := fmt.Sprintf("computed-%d", sum)
-	emitter.Emit([]byte(response))
+	emitter.EmitCbor([]byte(response))
 	return nil
 }
 
-func handleGetManifest(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
+func handleGetManifest(frames <-chan cbor.Frame, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
+	_ = collectPayload(frames) // Consume frames even if empty
 	manifest := buildManifest()
 	manifestBytes, err := json.Marshal(manifest)
 	if err != nil {
 		return err
 	}
 
-	emitter.Emit(manifestBytes)
+	emitter.EmitCbor(manifestBytes)
 	return nil
 }
 
-func handleProcessLarge(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
+func handleProcessLarge(frames <-chan cbor.Frame, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
+	payload := collectPayload(frames)
 	// Calculate size and checksum
 	size := len(payload)
 	hash := sha256.Sum256(payload)
@@ -455,20 +578,22 @@ func handleProcessLarge(payload []byte, emitter capns.StreamEmitter, peer capns.
 		return err
 	}
 
-	emitter.Emit(resultBytes)
+	emitter.EmitCbor(resultBytes)
 	return nil
 }
 
-func handleHashIncoming(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
+func handleHashIncoming(frames <-chan cbor.Frame, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
+	payload := collectPayload(frames)
 	// Calculate SHA256 hash
 	hash := sha256.Sum256(payload)
 	hexHash := hex.EncodeToString(hash[:])
 
-	emitter.Emit([]byte(hexHash))
+	emitter.EmitCbor([]byte(hexHash))
 	return nil
 }
 
-func handleVerifyBinary(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
+func handleVerifyBinary(frames <-chan cbor.Frame, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
+	payload := collectPayload(frames)
 	// Check if all 256 byte values (0x00-0xFF) are present
 	present := make(map[byte]bool)
 	for _, b := range payload {
@@ -482,11 +607,12 @@ func handleVerifyBinary(payload []byte, emitter capns.StreamEmitter, peer capns.
 		message = "ok"
 	}
 
-	emitter.Emit([]byte(message))
+	emitter.EmitCbor([]byte(message))
 	return nil
 }
 
-func handleReadFileInfo(payload []byte, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
+func handleReadFileInfo(frames <-chan cbor.Frame, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
+	payload := collectPayload(frames)
 	// Payload is already file bytes (auto-converted by runtime from file-path)
 	size := len(payload)
 	hash := sha256.Sum256(payload)
@@ -502,7 +628,7 @@ func handleReadFileInfo(payload []byte, emitter capns.StreamEmitter, peer capns.
 		return err
 	}
 
-	emitter.Emit(resultBytes)
+	emitter.EmitCbor(resultBytes)
 	return nil
 }
 

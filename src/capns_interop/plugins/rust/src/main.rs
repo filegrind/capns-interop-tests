@@ -2,11 +2,11 @@ use capns::{
     ArgSource, Cap, CapArg, CapArgumentValue, CapManifest, CapOutput, CapUrnBuilder,
     PeerInvoker, PluginRuntime, RuntimeError, StreamEmitter,
 };
-use capns::plugin_runtime::StreamChunk;
+use capns::cbor_frame::{Frame, FrameType};
+use crossbeam_channel::Receiver;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
-use std::sync::mpsc::Receiver;
 use std::thread;
 use std::time::Duration;
 
@@ -16,13 +16,105 @@ struct ValueRequest {
     value: serde_json::Value,
 }
 
-// Helper: Collect all stream chunks into a single byte vector
-fn collect_payload(stream_chunks: Receiver<StreamChunk>) -> Vec<u8> {
+// Helper: Collect all frames, decode each CHUNK payload as CBOR, extract bytes
+// PROTOCOL: Each CHUNK payload is a complete, independently decodable CBOR value
+// For Value::Bytes, extract and concatenate the bytes
+// For Value::Text, extract and concatenate as UTF-8 bytes
+fn collect_payload(frames: Receiver<Frame>) -> Vec<u8> {
     let mut accumulated = Vec::new();
-    for chunk in stream_chunks {
-        accumulated.extend_from_slice(&chunk.data);
+    for frame in frames {
+        match frame.frame_type {
+            FrameType::Chunk => {
+                if let Some(payload) = frame.payload {
+                    // Each CHUNK payload MUST be valid CBOR - decode it
+                    let value: ciborium::Value = ciborium::from_reader(&payload[..])
+                        .expect("CHUNK payload must be valid CBOR");
+
+                    // Extract bytes from CBOR value
+                    match value {
+                        ciborium::Value::Bytes(bytes) => {
+                            accumulated.extend_from_slice(&bytes);
+                        }
+                        ciborium::Value::Text(text) => {
+                            accumulated.extend_from_slice(text.as_bytes());
+                        }
+                        _ => {
+                            panic!("Unexpected CBOR type in CHUNK: expected Bytes or Text, got {:?}", value);
+                        }
+                    }
+                }
+            }
+            FrameType::End => break,
+            _ => {} // Ignore other frame types
+        }
     }
     accumulated
+}
+
+// Helper: Collect peer response as CBOR value
+// Decodes each CHUNK individually, reconstructs the complete value
+// For simple values (Bytes/Text/Integer), there's typically one chunk
+// For arrays/maps, multiple chunks are combined
+fn collect_peer_response(peer_frames: Receiver<Frame>) -> Result<ciborium::Value, RuntimeError> {
+    let mut chunks = Vec::new();
+    for frame in peer_frames {
+        match frame.frame_type {
+            FrameType::Chunk => {
+                if let Some(payload) = frame.payload {
+                    // Each CHUNK payload MUST be valid CBOR - decode it
+                    let value: ciborium::Value = ciborium::from_reader(&payload[..])
+                        .map_err(|e| RuntimeError::Deserialize(format!("Invalid CBOR in CHUNK: {}", e)))?;
+                    chunks.push(value);
+                }
+            }
+            FrameType::End => break,
+            FrameType::Err => {
+                let code = frame.error_code().unwrap_or("UNKNOWN");
+                let message = frame.error_message().unwrap_or("Unknown error");
+                return Err(RuntimeError::PeerRequest(format!("[{}] {}", code, message)));
+            }
+            _ => {}
+        }
+    }
+
+    // Reconstruct value from chunks
+    if chunks.is_empty() {
+        return Err(RuntimeError::Deserialize("No chunks received".to_string()));
+    } else if chunks.len() == 1 {
+        // Single chunk - return as-is
+        Ok(chunks.into_iter().next().unwrap())
+    } else {
+        // Multiple chunks - concatenate Bytes/Text, or collect Array elements
+        let first = &chunks[0];
+        match first {
+            ciborium::Value::Bytes(_) => {
+                // Concatenate all byte chunks
+                let mut result = Vec::new();
+                for chunk in chunks {
+                    match chunk {
+                        ciborium::Value::Bytes(bytes) => result.extend_from_slice(&bytes),
+                        _ => return Err(RuntimeError::Deserialize("Mixed chunk types".to_string())),
+                    }
+                }
+                Ok(ciborium::Value::Bytes(result))
+            }
+            ciborium::Value::Text(_) => {
+                // Concatenate all text chunks
+                let mut result = String::new();
+                for chunk in chunks {
+                    match chunk {
+                        ciborium::Value::Text(text) => result.push_str(&text),
+                        _ => return Err(RuntimeError::Deserialize("Mixed chunk types".to_string())),
+                    }
+                }
+                Ok(ciborium::Value::Text(result))
+            }
+            _ => {
+                // For other types (Integer, Array elements), collect as array
+                Ok(ciborium::Value::Array(chunks))
+            }
+        }
+    }
 }
 
 fn build_manifest() -> CapManifest {
@@ -181,7 +273,7 @@ fn build_manifest() -> CapManifest {
             CapUrnBuilder::new()
                 .tag("op", "verify_binary")
                 .in_spec("media:bytes")
-                .out_spec("media:boolean")
+                .out_spec("media:string;textable;form=scalar")
                 .build()
                 .unwrap(),
             "Verify Binary".to_string(),
@@ -262,22 +354,22 @@ fn main() -> Result<(), RuntimeError> {
 
 // Handler: echo - returns input as-is
 fn handle_echo(
-    stream_chunks: Receiver<StreamChunk>,
+    frames: Receiver<Frame>,
     emitter: &dyn StreamEmitter,
     _peer: &dyn PeerInvoker,
 ) -> Result<(), RuntimeError> {
-    let payload = collect_payload(stream_chunks);
+    let payload = collect_payload(frames);
     emitter.emit_cbor(&ciborium::Value::Bytes(payload))?;
     Ok(())
 }
 
 // Handler: double - doubles a number
 fn handle_double(
-    stream_chunks: Receiver<StreamChunk>,
+    frames: Receiver<Frame>,
     emitter: &dyn StreamEmitter,
     _peer: &dyn PeerInvoker,
 ) -> Result<(), RuntimeError> {
-    let payload = collect_payload(stream_chunks);
+    let payload = collect_payload(frames);
     let req: ValueRequest = serde_json::from_slice(&payload)
         .map_err(|e| RuntimeError::Handler(format!("Invalid JSON: {}", e)))?;
 
@@ -287,17 +379,19 @@ fn handle_double(
         .ok_or_else(|| RuntimeError::Handler("Expected number".to_string()))?;
 
     let result = value * 2;
-    emitter.emit(serde_json::json!(result))?;
+
+    // Return as CBOR integer (per protocol: int sent as single chunk)
+    emitter.emit_cbor(&ciborium::Value::Integer(result.into()))?;
     Ok(())
 }
 
 // Handler: stream_chunks - emits N chunks
 fn handle_stream_chunks(
-    stream_chunks: Receiver<StreamChunk>,
+    frames: Receiver<Frame>,
     emitter: &dyn StreamEmitter,
     _peer: &dyn PeerInvoker,
 ) -> Result<(), RuntimeError> {
-    let payload = collect_payload(stream_chunks);
+    let payload = collect_payload(frames);
     let req: ValueRequest = serde_json::from_slice(&payload)
         .map_err(|e| RuntimeError::Handler(format!("Invalid JSON: {}", e)))?;
 
@@ -308,31 +402,31 @@ fn handle_stream_chunks(
 
     for i in 0..count {
         let chunk = format!("chunk-{}", i);
-        emitter.emit(serde_json::json!(chunk))?;
+        emitter.emit_cbor(&ciborium::Value::Bytes(chunk.into_bytes()))?;
     }
 
-    emitter.emit(serde_json::json!("done"))?;
+    emitter.emit_cbor(&ciborium::Value::Bytes(b"done".to_vec()))?;
     Ok(())
 }
 
 // Handler: binary_echo - echoes binary data
 fn handle_binary_echo(
-    stream_chunks: Receiver<StreamChunk>,
+    frames: Receiver<Frame>,
     emitter: &dyn StreamEmitter,
     _peer: &dyn PeerInvoker,
 ) -> Result<(), RuntimeError> {
-    let payload = collect_payload(stream_chunks);
+    let payload = collect_payload(frames);
     emitter.emit_cbor(&ciborium::Value::Bytes(payload))?;
     Ok(())
 }
 
 // Handler: slow_response - sleeps before responding
 fn handle_slow_response(
-    stream_chunks: Receiver<StreamChunk>,
+    frames: Receiver<Frame>,
     emitter: &dyn StreamEmitter,
     _peer: &dyn PeerInvoker,
 ) -> Result<(), RuntimeError> {
-    let payload = collect_payload(stream_chunks);
+    let payload = collect_payload(frames);
     let req: ValueRequest = serde_json::from_slice(&payload)
         .map_err(|e| RuntimeError::Handler(format!("Invalid JSON: {}", e)))?;
 
@@ -344,17 +438,17 @@ fn handle_slow_response(
     thread::sleep(Duration::from_millis(sleep_ms));
 
     let response = format!("slept-{}ms", sleep_ms);
-    emitter.emit(serde_json::json!(response))?;
+    emitter.emit_cbor(&ciborium::Value::Bytes(response.into_bytes()))?;
     Ok(())
 }
 
 // Handler: generate_large - generates large payload
 fn handle_generate_large(
-    stream_chunks: Receiver<StreamChunk>,
+    frames: Receiver<Frame>,
     emitter: &dyn StreamEmitter,
     _peer: &dyn PeerInvoker,
 ) -> Result<(), RuntimeError> {
-    let payload = collect_payload(stream_chunks);
+    let payload = collect_payload(frames);
     let req: ValueRequest = serde_json::from_slice(&payload)
         .map_err(|e| RuntimeError::Handler(format!("Invalid JSON: {}", e)))?;
 
@@ -377,11 +471,11 @@ fn handle_generate_large(
 
 // Handler: with_status - emits status messages during processing
 fn handle_with_status(
-    stream_chunks: Receiver<StreamChunk>,
+    frames: Receiver<Frame>,
     emitter: &dyn StreamEmitter,
     _peer: &dyn PeerInvoker,
 ) -> Result<(), RuntimeError> {
-    let payload = collect_payload(stream_chunks);
+    let payload = collect_payload(frames);
     let req: ValueRequest = serde_json::from_slice(&payload)
         .map_err(|e| RuntimeError::Handler(format!("Invalid JSON: {}", e)))?;
 
@@ -392,7 +486,7 @@ fn handle_with_status(
 
     for i in 0..steps {
         let status = format!("step {}", i);
-        emitter.emit_status("processing", &status);
+        emitter.emit_log("processing", &status);
         thread::sleep(Duration::from_millis(10));
     }
 
@@ -402,11 +496,11 @@ fn handle_with_status(
 
 // Handler: throw_error - returns an error
 fn handle_throw_error(
-    stream_chunks: Receiver<StreamChunk>,
+    frames: Receiver<Frame>,
     _emitter: &dyn StreamEmitter,
     _peer: &dyn PeerInvoker,
 ) -> Result<(), RuntimeError> {
-    let payload = collect_payload(stream_chunks);
+    let payload = collect_payload(frames);
     let req: ValueRequest = serde_json::from_slice(&payload)
         .map_err(|e| RuntimeError::Handler(format!("Invalid JSON: {}", e)))?;
 
@@ -420,34 +514,31 @@ fn handle_throw_error(
 
 // Handler: peer_echo - calls host's echo via PeerInvoker
 fn handle_peer_echo(
-    stream_chunks: Receiver<StreamChunk>,
+    frames: Receiver<Frame>,
     emitter: &dyn StreamEmitter,
     peer: &dyn PeerInvoker,
 ) -> Result<(), RuntimeError> {
-    let payload = collect_payload(stream_chunks);
+    let payload = collect_payload(frames);
 
     // Call host's echo capability
     let args = vec![CapArgumentValue::new("media:bytes", payload)];
-    let rx = peer.invoke(r#"cap:in=*;op=echo;out=*"#, &args)?;
+    let peer_frames = peer.invoke(r#"cap:in=*;op=echo;out=*"#, &args)?;
 
-    // Collect response
-    let mut result = Vec::new();
-    for chunk_result in rx {
-        let chunk = chunk_result?;
-        result.extend(chunk);
-    }
+    // Collect and decode peer response
+    let cbor_value = collect_peer_response(peer_frames)?;
 
-    emitter.emit_cbor(&ciborium::Value::Bytes(result))?;
+    // Re-emit (consumption → production)
+    emitter.emit_cbor(&cbor_value)?;
     Ok(())
 }
 
 // Handler: nested_call - makes a peer call to double, then doubles again
 fn handle_nested_call(
-    stream_chunks: Receiver<StreamChunk>,
+    frames: Receiver<Frame>,
     emitter: &dyn StreamEmitter,
     peer: &dyn PeerInvoker,
 ) -> Result<(), RuntimeError> {
-    let payload = collect_payload(stream_chunks);
+    let payload = collect_payload(frames);
     let req: ValueRequest = serde_json::from_slice(&payload)
         .map_err(|e| RuntimeError::Handler(format!("Invalid JSON: {}", e)))?;
 
@@ -461,32 +552,33 @@ fn handle_nested_call(
         .map_err(|e| RuntimeError::Serialize(e.to_string()))?;
     let args = vec![CapArgumentValue::new("media:json", input)];
 
-    let rx = peer.invoke(r#"cap:in=*;op=double;out=*"#, &args)?;
+    let peer_frames = peer.invoke(r#"cap:in=*;op=double;out=*"#, &args)?;
 
-    // Collect response
-    let mut result_bytes = Vec::new();
-    for chunk_result in rx {
-        let chunk = chunk_result?;
-        result_bytes.extend(chunk);
-    }
+    // Collect and decode peer response
+    let cbor_value = collect_peer_response(peer_frames)?;
 
-    let host_result: u64 = serde_json::from_slice(&result_bytes)
-        .map_err(|e| RuntimeError::Deserialize(e.to_string()))?;
+    let host_result = match cbor_value {
+        ciborium::Value::Integer(n) => {
+            let val: i128 = n.into();
+            val as u64
+        }
+        _ => return Err(RuntimeError::Deserialize("Expected integer from double".to_string())),
+    };
 
     // Double again locally
     let final_result = host_result * 2;
 
-    emitter.emit(serde_json::json!(final_result))?;
+    emitter.emit_cbor(&ciborium::Value::Integer(final_result.into()))?;
     Ok(())
 }
 
 // Handler: heartbeat_stress - simulates heavy processing
 fn handle_heartbeat_stress(
-    stream_chunks: Receiver<StreamChunk>,
+    frames: Receiver<Frame>,
     emitter: &dyn StreamEmitter,
     _peer: &dyn PeerInvoker,
 ) -> Result<(), RuntimeError> {
-    let payload = collect_payload(stream_chunks);
+    let payload = collect_payload(frames);
     let req: ValueRequest = serde_json::from_slice(&payload)
         .map_err(|e| RuntimeError::Handler(format!("Invalid JSON: {}", e)))?;
 
@@ -512,11 +604,11 @@ fn handle_heartbeat_stress(
 
 // Handler: concurrent_stress - spawns multiple threads
 fn handle_concurrent_stress(
-    stream_chunks: Receiver<StreamChunk>,
+    frames: Receiver<Frame>,
     emitter: &dyn StreamEmitter,
     _peer: &dyn PeerInvoker,
 ) -> Result<(), RuntimeError> {
-    let payload = collect_payload(stream_chunks);
+    let payload = collect_payload(frames);
     let req: ValueRequest = serde_json::from_slice(&payload)
         .map_err(|e| RuntimeError::Handler(format!("Invalid JSON: {}", e)))?;
 
@@ -548,44 +640,50 @@ fn handle_concurrent_stress(
 
 // Handler: get_manifest - returns plugin manifest
 fn handle_get_manifest(
-    _stream_chunks: Receiver<StreamChunk>,
+    frames: Receiver<Frame>,
     emitter: &dyn StreamEmitter,
     _peer: &dyn PeerInvoker,
 ) -> Result<(), RuntimeError> {
+    // Consume frames (no payload expected but must consume)
+    let _payload = collect_payload(frames);
+
     let manifest = build_manifest();
-    let manifest_json = serde_json::to_value(&manifest)
+    let manifest_json = serde_json::to_vec(&manifest)
         .map_err(|e| RuntimeError::Serialize(e.to_string()))?;
-    emitter.emit(manifest_json)?;
+    emitter.emit_cbor(&ciborium::Value::Bytes(manifest_json))?;
     Ok(())
 }
 
 // Handler: process_large - processes large binary data
 fn handle_process_large(
-    stream_chunks: Receiver<StreamChunk>,
+    frames: Receiver<Frame>,
     emitter: &dyn StreamEmitter,
     _peer: &dyn PeerInvoker,
 ) -> Result<(), RuntimeError> {
-    let payload = collect_payload(stream_chunks);
+    let payload = collect_payload(frames);
 
     let mut hasher = Sha256::new();
     hasher.update(&payload);
     let hash = hasher.finalize();
     let hash_hex = hex::encode(hash);
 
-    emitter.emit(serde_json::json!({
+    let result = serde_json::to_vec(&serde_json::json!({
         "size": payload.len(),
         "checksum": hash_hex
-    }))?;
+    }))
+    .map_err(|e| RuntimeError::Serialize(e.to_string()))?;
+
+    emitter.emit_cbor(&ciborium::Value::Bytes(result))?;
     Ok(())
 }
 
 // Handler: hash_incoming - computes SHA256 hash
 fn handle_hash_incoming(
-    stream_chunks: Receiver<StreamChunk>,
+    frames: Receiver<Frame>,
     emitter: &dyn StreamEmitter,
     _peer: &dyn PeerInvoker,
 ) -> Result<(), RuntimeError> {
-    let payload = collect_payload(stream_chunks);
+    let payload = collect_payload(frames);
 
     let mut hasher = Sha256::new();
     hasher.update(&payload);
@@ -598,11 +696,11 @@ fn handle_hash_incoming(
 
 // Handler: verify_binary - checks if all 256 byte values are present
 fn handle_verify_binary(
-    stream_chunks: Receiver<StreamChunk>,
+    frames: Receiver<Frame>,
     emitter: &dyn StreamEmitter,
     _peer: &dyn PeerInvoker,
 ) -> Result<(), RuntimeError> {
-    let payload = collect_payload(stream_chunks);
+    let payload = collect_payload(frames);
 
     let mut seen = HashSet::new();
     for &byte in &payload {
@@ -622,21 +720,24 @@ fn handle_verify_binary(
 
 // Handler: read_file_info - reads file and returns metadata
 fn handle_read_file_info(
-    stream_chunks: Receiver<StreamChunk>,
+    frames: Receiver<Frame>,
     emitter: &dyn StreamEmitter,
     _peer: &dyn PeerInvoker,
 ) -> Result<(), RuntimeError> {
     // File content is provided via stdin source auto-conversion
-    let file_content = collect_payload(stream_chunks);
+    let file_content = collect_payload(frames);
 
     let mut hasher = Sha256::new();
     hasher.update(&file_content);
     let hash = hasher.finalize();
     let hash_hex = hex::encode(hash);
 
-    emitter.emit(serde_json::json!({
+    let result = serde_json::to_vec(&serde_json::json!({
         "size": file_content.len(),
         "checksum": hash_hex
-    }))?;
+    }))
+    .map_err(|e| RuntimeError::Serialize(e.to_string()))?;
+
+    emitter.emit_cbor(&ciborium::Value::Bytes(result))?;
     Ok(())
 }

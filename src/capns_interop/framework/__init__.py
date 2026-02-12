@@ -1,15 +1,21 @@
-"""Core orchestration framework."""
+"""Core interop test framework."""
 
-from .process_manager import PluginProcess
-from .orchestrator import Orchestrator
-from .host_process import HostProcess
-from .remote_host import RemoteHost
-from .matrix_orchestrator import MatrixOrchestrator
+from .frame_test_helper import (
+    HostProcess,
+    make_req_id,
+    send_request,
+    send_simple_request,
+    read_response,
+    read_until_frame_type,
+    decode_cbor_response,
+)
 
 __all__ = [
-    "PluginProcess",
-    "Orchestrator",
     "HostProcess",
-    "RemoteHost",
-    "MatrixOrchestrator",
+    "make_req_id",
+    "send_request",
+    "send_simple_request",
+    "read_response",
+    "read_until_frame_type",
+    "decode_cbor_response",
 ]

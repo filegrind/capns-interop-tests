@@ -68,6 +68,84 @@ from capns.manifest import CapManifest, Cap
 from capns.cap_urn import CapUrn, CapUrnBuilder
 from capns.caller import CapArgumentValue
 from capns.cap import CapArg, CapOutput, StdinSource, PositionSource
+from capns.cbor_frame import Frame, FrameType
+import queue
+
+
+def collect_payload(frames: queue.Queue) -> bytes:
+    """Collect all CHUNK frames, decode each as CBOR, and accumulate bytes.
+    PROTOCOL: Each CHUNK payload is a complete, independently decodable CBOR value.
+    For bytes values, extract and concatenate the bytes.
+    For str values, extract and concatenate as UTF-8 bytes.
+    """
+    import cbor2
+    accumulated = bytearray()
+    while True:
+        try:
+            frame = frames.get(timeout=30)
+            if frame.frame_type == FrameType.CHUNK:
+                if frame.payload:
+                    # Each CHUNK payload MUST be valid CBOR - decode it
+                    value = cbor2.loads(frame.payload)
+
+                    # Extract bytes from CBOR value
+                    if isinstance(value, bytes):
+                        accumulated.extend(value)
+                    elif isinstance(value, str):
+                        accumulated.extend(value.encode('utf-8'))
+                    else:
+                        raise ValueError(f"Unexpected CBOR type in CHUNK: expected bytes or str, got {type(value)}")
+            elif frame.frame_type == FrameType.END:
+                break
+        except queue.Empty:
+            break
+    return bytes(accumulated)
+
+
+def collect_peer_response(peer_frames: queue.Queue):
+    """Collect peer response frames, decode each CHUNK as CBOR, and reconstruct value.
+    For simple values (bytes/str/int), there's typically one chunk.
+    For arrays/maps, multiple chunks are combined.
+    """
+    import cbor2
+    chunks = []
+    while True:
+        try:
+            frame = peer_frames.get(timeout=30)
+            if frame.frame_type == FrameType.CHUNK:
+                if frame.payload:
+                    # Each CHUNK payload MUST be valid CBOR - decode it
+                    value = cbor2.loads(frame.payload)
+                    chunks.append(value)
+            elif frame.frame_type == FrameType.END:
+                break
+            elif frame.frame_type == FrameType.ERR:
+                code = frame.error_code() or "UNKNOWN"
+                message = frame.error_message() or "Unknown error"
+                raise RuntimeError(f"[{code}] {message}")
+        except queue.Empty:
+            break
+
+    # Reconstruct value from chunks
+    if not chunks:
+        raise RuntimeError("No chunks received")
+    elif len(chunks) == 1:
+        # Single chunk - return value as-is
+        return chunks[0]
+    else:
+        # Multiple chunks - concatenate bytes/strings, or collect array elements
+        first = chunks[0]
+        if isinstance(first, bytes):
+            # Concatenate all byte chunks
+            result = b''.join(c for c in chunks if isinstance(c, bytes))
+            return result
+        elif isinstance(first, str):
+            # Concatenate all string chunks
+            result = ''.join(c for c in chunks if isinstance(c, str))
+            return result
+        else:
+            # For other types (Integer, Array elements), collect as list
+            return chunks
 
 
 def build_manifest() -> CapManifest:
@@ -255,49 +333,56 @@ def build_manifest() -> CapManifest:
     )
 
 
-def handle_echo(payload: bytes, emitter, peer) -> bytes:
+def handle_echo(frames: queue.Queue, emitter, peer):
     """Echo - returns input as-is."""
-    return payload
+    payload = collect_payload(frames)
+    emitter.emit_cbor(payload)
 
 
-def handle_double(payload: bytes, emitter, peer) -> bytes:
+def handle_double(frames: queue.Queue, emitter, peer):
     """Double - doubles a number."""
+    payload = collect_payload(frames)
     data = json.loads(payload)
     value = data["value"]
     result = value * 2
-    return json.dumps(result).encode()
+    result_bytes = json.dumps(result).encode('utf-8')
+    emitter.emit_cbor(result_bytes)
 
 
-def handle_stream_chunks(payload: bytes, emitter, peer) -> bytes:
+def handle_stream_chunks(frames: queue.Queue, emitter, peer):
     """Stream chunks - emits N chunks."""
+    payload = collect_payload(frames)
     data = json.loads(payload)
     count = data["value"]
 
     for i in range(count):
-        chunk = f"chunk-{i}"
-        emitter.emit_bytes(chunk.encode())
+        chunk_data = f"chunk-{i}".encode('utf-8')
+        emitter.emit_cbor(chunk_data)
 
-    return b"done"
+    emitter.emit_cbor(b"done")
 
 
-def handle_binary_echo(payload: bytes, emitter, peer) -> bytes:
+def handle_binary_echo(frames: queue.Queue, emitter, peer):
     """Binary echo - echoes binary data."""
-    return payload
+    payload = collect_payload(frames)
+    emitter.emit_cbor(payload)
 
 
-def handle_slow_response(payload: bytes, emitter, peer) -> bytes:
+def handle_slow_response(frames: queue.Queue, emitter, peer):
     """Slow response - sleeps before responding."""
+    payload = collect_payload(frames)
     data = json.loads(payload)
     sleep_ms = data["value"]
 
     time.sleep(sleep_ms / 1000.0)
 
-    response = f"slept-{sleep_ms}ms"
-    return response.encode()
+    response = f"slept-{sleep_ms}ms".encode('utf-8')
+    emitter.emit_cbor(response)
 
 
-def handle_generate_large(payload: bytes, emitter, peer) -> bytes:
+def handle_generate_large(frames: queue.Queue, emitter, peer):
     """Generate large - generates large payload."""
+    payload = collect_payload(frames)
     data = json.loads(payload)
     size = data["value"]
 
@@ -307,66 +392,76 @@ def handle_generate_large(payload: bytes, emitter, peer) -> bytes:
     for i in range(size):
         result.append(pattern[i % len(pattern)])
 
-    return bytes(result)
+    emitter.emit_cbor(bytes(result))
 
 
-def handle_with_status(payload: bytes, emitter, peer) -> bytes:
+def handle_with_status(frames: queue.Queue, emitter, peer):
     """With status - emits status messages during processing."""
+    payload = collect_payload(frames)
     data = json.loads(payload)
     steps = data["value"]
 
     for i in range(steps):
         status = f"step {i}"
-        emitter.emit_status("processing", status)
+        emitter.emit_log(status)
         time.sleep(0.01)
 
-    return b"completed"
+    emitter.emit_cbor(b"completed")
 
 
-def handle_throw_error(payload: bytes, emitter, peer) -> bytes:
+def handle_throw_error(frames: queue.Queue, emitter, peer):
     """Throw error - returns an error."""
+    payload = collect_payload(frames)
     data = json.loads(payload)
     message = data["value"]
     raise RuntimeError(message)
 
 
-def handle_peer_echo(payload: bytes, emitter, peer) -> bytes:
+def handle_peer_echo(frames: queue.Queue, emitter, peer):
     """Peer echo - calls host's echo via PeerInvoker."""
+    payload = collect_payload(frames)
+
     # Call host's echo capability
-    result_chunks = peer.invoke("cap:in=*;op=echo;out=*", [CapArgumentValue("media:bytes", payload)])
+    peer_frames = peer.invoke("cap:in=*;op=echo;out=*", [CapArgumentValue("media:bytes", payload)])
 
-    # Collect response
-    result = b""
-    for chunk in result_chunks:
-        result += chunk
+    # Collect and decode peer response
+    cbor_value = collect_peer_response(peer_frames)
 
-    return result
+    # Re-emit (consumption → production)
+    emitter.emit_cbor(cbor_value)
 
 
-def handle_nested_call(payload: bytes, emitter, peer) -> bytes:
+def handle_nested_call(frames: queue.Queue, emitter, peer):
     """Nested call - makes a peer call to double, then doubles again."""
+    payload = collect_payload(frames)
     data = json.loads(payload)
     value = data["value"]
 
     # Call host's double capability
-    input_data = json.dumps({"value": value}).encode()
-    result_chunks = peer.invoke("cap:in=*;op=double;out=*", [CapArgumentValue("media:json", input_data)])
+    input_data = json.dumps({"value": value}).encode('utf-8')
+    peer_frames = peer.invoke("cap:in=*;op=double;out=*", [CapArgumentValue("media:json", input_data)])
 
-    # Collect response
-    result_bytes = b""
-    for chunk in result_chunks:
-        result_bytes += chunk
+    # Collect and decode peer response
+    cbor_value = collect_peer_response(peer_frames)
 
-    host_result = json.loads(result_bytes)
+    # Extract integer from response
+    if isinstance(cbor_value, int):
+        host_result = cbor_value
+    elif isinstance(cbor_value, bytes):
+        host_result = json.loads(cbor_value)
+    else:
+        host_result = cbor_value
 
     # Double again locally
     final_result = host_result * 2
 
-    return json.dumps(final_result).encode()
+    # Emit result as integer
+    emitter.emit_cbor(final_result)
 
 
-def handle_heartbeat_stress(payload: bytes, emitter, peer) -> bytes:
+def handle_heartbeat_stress(frames: queue.Queue, emitter, peer):
     """Heartbeat stress - long operation to test heartbeats."""
+    payload = collect_payload(frames)
     data = json.loads(payload)
     duration_ms = data["value"]
 
@@ -376,12 +471,13 @@ def handle_heartbeat_stress(payload: bytes, emitter, peer) -> bytes:
         time.sleep(0.1)
     time.sleep((duration_ms % 100) / 1000.0)
 
-    response = f"stressed-{duration_ms}ms"
-    return response.encode()
+    response = f"stressed-{duration_ms}ms".encode('utf-8')
+    emitter.emit_cbor(response)
 
 
-def handle_concurrent_stress(payload: bytes, emitter, peer) -> bytes:
+def handle_concurrent_stress(frames: queue.Queue, emitter, peer):
     """Concurrent stress - simulates concurrent workload."""
+    payload = collect_payload(frames)
     data = json.loads(payload)
     work_units = data["value"]
 
@@ -390,18 +486,21 @@ def handle_concurrent_stress(payload: bytes, emitter, peer) -> bytes:
     for i in range(work_units * 1000):
         total = (total + i) & 0xFFFFFFFFFFFFFFFF  # Keep it in u64 range
 
-    response = f"computed-{total}"
-    return response.encode()
+    response = f"computed-{total}".encode('utf-8')
+    emitter.emit_cbor(response)
 
 
-def handle_get_manifest(payload: bytes, emitter, peer) -> bytes:
+def handle_get_manifest(frames: queue.Queue, emitter, peer):
     """Get manifest - returns the manifest as JSON."""
+    collect_payload(frames)  # Consume frames (media:void)
     manifest = build_manifest()
-    return json.dumps(manifest.to_dict()).encode()
+    result_bytes = json.dumps(manifest.to_dict()).encode('utf-8')
+    emitter.emit_cbor(result_bytes)
 
 
-def handle_process_large(payload: bytes, emitter, peer) -> bytes:
+def handle_process_large(frames: queue.Queue, emitter, peer):
     """Process large - receives large bytes, returns size and checksum."""
+    payload = collect_payload(frames)
     size = len(payload)
     checksum = hashlib.sha256(payload).hexdigest()
 
@@ -410,17 +509,22 @@ def handle_process_large(payload: bytes, emitter, peer) -> bytes:
         "checksum": checksum
     }
 
-    return json.dumps(result).encode()
+    result_bytes = json.dumps(result).encode('utf-8')
+    emitter.emit_cbor(result_bytes)
 
 
-def handle_hash_incoming(payload: bytes, emitter, peer) -> bytes:
+def handle_hash_incoming(frames: queue.Queue, emitter, peer):
     """Hash incoming - receives large bytes, returns SHA256 hash."""
+    payload = collect_payload(frames)
     checksum = hashlib.sha256(payload).hexdigest()
-    return checksum.encode()
+    result_bytes = checksum.encode('utf-8')
+    emitter.emit_cbor(result_bytes)
 
 
-def handle_verify_binary(payload: bytes, emitter, peer) -> bytes:
+def handle_verify_binary(frames: queue.Queue, emitter, peer):
     """Verify binary - verifies all 256 byte values present."""
+    payload = collect_payload(frames)
+
     # Count occurrences of each byte value
     byte_counts = [0] * 256
     for byte in payload:
@@ -436,13 +540,14 @@ def handle_verify_binary(payload: bytes, emitter, peer) -> bytes:
         error_msg = f"missing byte values: {missing[:10]}"  # Show first 10
         if len(missing) > 10:
             error_msg += f" and {len(missing) - 10} more"
-        return error_msg.encode()
+        emitter.emit_cbor(error_msg.encode('utf-8'))
+    else:
+        emitter.emit_cbor(b"ok")
 
-    return b"ok"
 
-
-def handle_read_file_info(payload: bytes, emitter, peer) -> bytes:
+def handle_read_file_info(frames: queue.Queue, emitter, peer):
     """Read file info - receives file bytes (auto-converted by runtime), returns size and checksum."""
+    payload = collect_payload(frames)
     size = len(payload)
     checksum = hashlib.sha256(payload).hexdigest()
 
@@ -451,7 +556,8 @@ def handle_read_file_info(payload: bytes, emitter, peer) -> bytes:
         "checksum": checksum
     }
 
-    return json.dumps(result).encode()
+    result_bytes = json.dumps(result).encode('utf-8')
+    emitter.emit_cbor(result_bytes)
 
 
 def main():
