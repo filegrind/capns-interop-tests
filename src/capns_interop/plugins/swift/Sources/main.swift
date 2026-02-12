@@ -89,12 +89,12 @@ func buildManifest() -> [String: Any] {
             "command": "verify_binary"
         ],
         [
-            "urn": "cap:in=\"media:invoice-path;textable;form=scalar\";op=read_file_info;out=\"media:invoice-metadata;json;textable;form=map\"",
+            "urn": "cap:in=\"media:invoice;file-path;textable;form=scalar\";op=read_file_info;out=\"media:invoice-metadata;json;textable;form=map\"",
             "title": "Read File Info",
             "command": "read_file_info",
             "args": [
                 [
-                    "media_urn": "media:invoice-path;textable;form=scalar",
+                    "media_urn": "media:invoice;file-path;textable;form=scalar",
                     "required": true,
                     "sources": [
                         ["stdin": "media:bytes"],
@@ -588,6 +588,6 @@ runtime.registerRaw(capUrn: "cap:in=\"media:void\";op=get_manifest;out=\"media:s
 runtime.registerRaw(capUrn: "cap:in=\"media:uploaded-document;bytes\";op=process_large;out=\"media:document-info;json;textable;form=map\"", handler: handleProcessLarge)
 runtime.registerRaw(capUrn: "cap:in=\"media:uploaded-document;bytes\";op=hash_incoming;out=\"media:document-hash;textable;form=scalar\"", handler: handleHashIncoming)
 runtime.registerRaw(capUrn: "cap:in=\"media:package-data;bytes\";op=verify_binary;out=\"media:verification-status;textable;form=scalar\"", handler: handleVerifyBinary)
-runtime.registerRaw(capUrn: "cap:in=\"media:invoice-path;textable;form=scalar\";op=read_file_info;out=\"media:invoice-metadata;json;textable;form=map\"", handler: handleReadFileInfo)
+runtime.registerRaw(capUrn: "cap:in=\"media:invoice;file-path;textable;form=scalar\";op=read_file_info;out=\"media:invoice-metadata;json;textable;form=map\"", handler: handleReadFileInfo)
 
 try! runtime.run()
