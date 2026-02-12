@@ -20,8 +20,8 @@ struct ValueRequest {
 // PROTOCOL: Each CHUNK payload is a complete, independently decodable CBOR value
 // For Value::Bytes, extract and concatenate the bytes
 // For Value::Text, extract and concatenate as UTF-8 bytes
-fn collect_payload(frames: Receiver<Frame>) -> Vec<u8> {
-    let mut accumulated = Vec::new();
+fn collect_payload(frames: Receiver<Frame>) -> ciborium::Value {
+    let mut chunks = Vec::new();
     for frame in frames {
         match frame.frame_type {
             FrameType::Chunk => {
@@ -29,26 +29,46 @@ fn collect_payload(frames: Receiver<Frame>) -> Vec<u8> {
                     // Each CHUNK payload MUST be valid CBOR - decode it
                     let value: ciborium::Value = ciborium::from_reader(&payload[..])
                         .expect("CHUNK payload must be valid CBOR");
-
-                    // Extract bytes from CBOR value
-                    match value {
-                        ciborium::Value::Bytes(bytes) => {
-                            accumulated.extend_from_slice(&bytes);
-                        }
-                        ciborium::Value::Text(text) => {
-                            accumulated.extend_from_slice(text.as_bytes());
-                        }
-                        _ => {
-                            panic!("Unexpected CBOR type in CHUNK: expected Bytes or Text, got {:?}", value);
-                        }
-                    }
+                    chunks.push(value);
                 }
             }
             FrameType::End => break,
             _ => {} // Ignore other frame types
         }
     }
-    accumulated
+
+    // Reconstruct value from chunks
+    if chunks.is_empty() {
+        ciborium::Value::Null
+    } else if chunks.len() == 1 {
+        chunks.into_iter().next().unwrap()
+    } else {
+        // Multiple chunks - concatenate bytes/text or collect as array
+        match &chunks[0] {
+            ciborium::Value::Bytes(_) => {
+                let mut accumulated = Vec::new();
+                for chunk in chunks {
+                    if let ciborium::Value::Bytes(bytes) = chunk {
+                        accumulated.extend_from_slice(&bytes);
+                    }
+                }
+                ciborium::Value::Bytes(accumulated)
+            }
+            ciborium::Value::Text(_) => {
+                let mut accumulated = String::new();
+                for chunk in chunks {
+                    if let ciborium::Value::Text(text) = chunk {
+                        accumulated.push_str(&text);
+                    }
+                }
+                ciborium::Value::Text(accumulated)
+            }
+            _ => {
+                // For other types (Map, Array, Integer, etc.), collect as array
+                ciborium::Value::Array(chunks)
+            }
+        }
+    }
 }
 
 // Helper: Collect peer response as CBOR value
@@ -352,13 +372,41 @@ fn main() -> Result<(), RuntimeError> {
     runtime.run()
 }
 
+// Helper: Extract bytes from CBOR value
+fn cbor_to_bytes(value: &ciborium::Value) -> Result<Vec<u8>, RuntimeError> {
+    match value {
+        ciborium::Value::Bytes(b) => Ok(b.clone()),
+        ciborium::Value::Text(s) => Ok(s.as_bytes().to_vec()),
+        _ => Err(RuntimeError::Handler(format!("Expected bytes or text, got {:?}", value))),
+    }
+}
+
+// Helper: Extract JSON bytes from CBOR Map
+fn cbor_map_to_json_bytes(value: &ciborium::Value) -> Result<Vec<u8>, RuntimeError> {
+    match value {
+        ciborium::Value::Map(_) => {
+            // Serialize CBOR map to JSON
+            let mut json_bytes = Vec::new();
+            ciborium::into_writer(value, &mut json_bytes)
+                .map_err(|e| RuntimeError::Serialize(format!("Failed to serialize CBOR: {}", e)))?;
+            // Re-read as serde_json::Value, then write as JSON
+            let json_val: serde_json::Value = ciborium::from_reader(&json_bytes[..])
+                .map_err(|e| RuntimeError::Deserialize(format!("Failed to read CBOR as JSON: {}", e)))?;
+            serde_json::to_vec(&json_val)
+                .map_err(|e| RuntimeError::Serialize(format!("Failed to serialize JSON: {}", e)))
+        }
+        _ => Err(RuntimeError::Handler(format!("Expected CBOR map, got {:?}", value))),
+    }
+}
+
 // Handler: echo - returns input as-is
 fn handle_echo(
     frames: Receiver<Frame>,
     emitter: &dyn StreamEmitter,
     _peer: &dyn PeerInvoker,
 ) -> Result<(), RuntimeError> {
-    let payload = collect_payload(frames);
+    let cbor_value = collect_payload(frames);
+    let payload = cbor_to_bytes(&cbor_value)?;
     emitter.emit_cbor(&ciborium::Value::Bytes(payload))?;
     Ok(())
 }
@@ -369,8 +417,9 @@ fn handle_double(
     emitter: &dyn StreamEmitter,
     _peer: &dyn PeerInvoker,
 ) -> Result<(), RuntimeError> {
-    let payload = collect_payload(frames);
-    let req: ValueRequest = serde_json::from_slice(&payload)
+    let cbor_value = collect_payload(frames);
+    let json_bytes = cbor_map_to_json_bytes(&cbor_value)?;
+    let req: ValueRequest = serde_json::from_slice(&json_bytes)
         .map_err(|e| RuntimeError::Handler(format!("Invalid JSON: {}", e)))?;
 
     let value = req
@@ -391,8 +440,9 @@ fn handle_stream_chunks(
     emitter: &dyn StreamEmitter,
     _peer: &dyn PeerInvoker,
 ) -> Result<(), RuntimeError> {
-    let payload = collect_payload(frames);
-    let req: ValueRequest = serde_json::from_slice(&payload)
+    let cbor_value = collect_payload(frames);
+    let json_bytes = cbor_map_to_json_bytes(&cbor_value)?;
+    let req: ValueRequest = serde_json::from_slice(&json_bytes)
         .map_err(|e| RuntimeError::Handler(format!("Invalid JSON: {}", e)))?;
 
     let count = req
@@ -415,7 +465,8 @@ fn handle_binary_echo(
     emitter: &dyn StreamEmitter,
     _peer: &dyn PeerInvoker,
 ) -> Result<(), RuntimeError> {
-    let payload = collect_payload(frames);
+    let cbor_value = collect_payload(frames);
+    let payload = cbor_to_bytes(&cbor_value)?;
     emitter.emit_cbor(&ciborium::Value::Bytes(payload))?;
     Ok(())
 }
@@ -426,8 +477,9 @@ fn handle_slow_response(
     emitter: &dyn StreamEmitter,
     _peer: &dyn PeerInvoker,
 ) -> Result<(), RuntimeError> {
-    let payload = collect_payload(frames);
-    let req: ValueRequest = serde_json::from_slice(&payload)
+    let cbor_value = collect_payload(frames);
+    let json_bytes = cbor_map_to_json_bytes(&cbor_value)?;
+    let req: ValueRequest = serde_json::from_slice(&json_bytes)
         .map_err(|e| RuntimeError::Handler(format!("Invalid JSON: {}", e)))?;
 
     let sleep_ms = req
@@ -448,8 +500,9 @@ fn handle_generate_large(
     emitter: &dyn StreamEmitter,
     _peer: &dyn PeerInvoker,
 ) -> Result<(), RuntimeError> {
-    let payload = collect_payload(frames);
-    let req: ValueRequest = serde_json::from_slice(&payload)
+    let cbor_value = collect_payload(frames);
+    let json_bytes = cbor_map_to_json_bytes(&cbor_value)?;
+    let req: ValueRequest = serde_json::from_slice(&json_bytes)
         .map_err(|e| RuntimeError::Handler(format!("Invalid JSON: {}", e)))?;
 
     let size = req
@@ -475,8 +528,9 @@ fn handle_with_status(
     emitter: &dyn StreamEmitter,
     _peer: &dyn PeerInvoker,
 ) -> Result<(), RuntimeError> {
-    let payload = collect_payload(frames);
-    let req: ValueRequest = serde_json::from_slice(&payload)
+    let cbor_value = collect_payload(frames);
+    let json_bytes = cbor_map_to_json_bytes(&cbor_value)?;
+    let req: ValueRequest = serde_json::from_slice(&json_bytes)
         .map_err(|e| RuntimeError::Handler(format!("Invalid JSON: {}", e)))?;
 
     let steps = req
@@ -500,8 +554,9 @@ fn handle_throw_error(
     _emitter: &dyn StreamEmitter,
     _peer: &dyn PeerInvoker,
 ) -> Result<(), RuntimeError> {
-    let payload = collect_payload(frames);
-    let req: ValueRequest = serde_json::from_slice(&payload)
+    let cbor_value = collect_payload(frames);
+    let json_bytes = cbor_map_to_json_bytes(&cbor_value)?;
+    let req: ValueRequest = serde_json::from_slice(&json_bytes)
         .map_err(|e| RuntimeError::Handler(format!("Invalid JSON: {}", e)))?;
 
     let message = req
@@ -518,10 +573,11 @@ fn handle_peer_echo(
     emitter: &dyn StreamEmitter,
     peer: &dyn PeerInvoker,
 ) -> Result<(), RuntimeError> {
-    let payload = collect_payload(frames);
+    let cbor_value = collect_payload(frames);
+    let payload = cbor_to_bytes(&cbor_value)?;
 
-    // Call host's echo capability
-    let args = vec![CapArgumentValue::new("media:bytes", payload)];
+    // Call host's echo capability with semantic URN
+    let args = vec![CapArgumentValue::new("media:customer-message;textable;form=scalar", payload)];
     let peer_frames = peer.invoke(r#"cap:in=*;op=echo;out=*"#, &args)?;
 
     // Collect and decode peer response
@@ -538,8 +594,9 @@ fn handle_nested_call(
     emitter: &dyn StreamEmitter,
     peer: &dyn PeerInvoker,
 ) -> Result<(), RuntimeError> {
-    let payload = collect_payload(frames);
-    let req: ValueRequest = serde_json::from_slice(&payload)
+    let cbor_value = collect_payload(frames);
+    let json_bytes = cbor_map_to_json_bytes(&cbor_value)?;
+    let req: ValueRequest = serde_json::from_slice(&json_bytes)
         .map_err(|e| RuntimeError::Handler(format!("Invalid JSON: {}", e)))?;
 
     let value = req
@@ -578,8 +635,9 @@ fn handle_heartbeat_stress(
     emitter: &dyn StreamEmitter,
     _peer: &dyn PeerInvoker,
 ) -> Result<(), RuntimeError> {
-    let payload = collect_payload(frames);
-    let req: ValueRequest = serde_json::from_slice(&payload)
+    let cbor_value = collect_payload(frames);
+    let json_bytes = cbor_map_to_json_bytes(&cbor_value)?;
+    let req: ValueRequest = serde_json::from_slice(&json_bytes)
         .map_err(|e| RuntimeError::Handler(format!("Invalid JSON: {}", e)))?;
 
     let duration_ms = req
@@ -608,8 +666,9 @@ fn handle_concurrent_stress(
     emitter: &dyn StreamEmitter,
     _peer: &dyn PeerInvoker,
 ) -> Result<(), RuntimeError> {
-    let payload = collect_payload(frames);
-    let req: ValueRequest = serde_json::from_slice(&payload)
+    let cbor_value = collect_payload(frames);
+    let json_bytes = cbor_map_to_json_bytes(&cbor_value)?;
+    let req: ValueRequest = serde_json::from_slice(&json_bytes)
         .map_err(|e| RuntimeError::Handler(format!("Invalid JSON: {}", e)))?;
 
     let thread_count = req
@@ -660,7 +719,8 @@ fn handle_process_large(
     emitter: &dyn StreamEmitter,
     _peer: &dyn PeerInvoker,
 ) -> Result<(), RuntimeError> {
-    let payload = collect_payload(frames);
+    let cbor_value = collect_payload(frames);
+    let payload = cbor_to_bytes(&cbor_value)?;
 
     let mut hasher = Sha256::new();
     hasher.update(&payload);
@@ -683,7 +743,8 @@ fn handle_hash_incoming(
     emitter: &dyn StreamEmitter,
     _peer: &dyn PeerInvoker,
 ) -> Result<(), RuntimeError> {
-    let payload = collect_payload(frames);
+    let cbor_value = collect_payload(frames);
+    let payload = cbor_to_bytes(&cbor_value)?;
 
     let mut hasher = Sha256::new();
     hasher.update(&payload);
@@ -700,7 +761,8 @@ fn handle_verify_binary(
     emitter: &dyn StreamEmitter,
     _peer: &dyn PeerInvoker,
 ) -> Result<(), RuntimeError> {
-    let payload = collect_payload(frames);
+    let cbor_value = collect_payload(frames);
+    let payload = cbor_to_bytes(&cbor_value)?;
 
     let mut seen = HashSet::new();
     for &byte in &payload {
@@ -725,7 +787,8 @@ fn handle_read_file_info(
     _peer: &dyn PeerInvoker,
 ) -> Result<(), RuntimeError> {
     // File content is provided via stdin source auto-conversion
-    let file_content = collect_payload(frames);
+    let cbor_value = collect_payload(frames);
+    let file_content = cbor_to_bytes(&cbor_value)?;
 
     let mut hasher = Sha256::new();
     hasher.update(&file_content);

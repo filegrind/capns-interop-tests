@@ -72,14 +72,23 @@ from capns.cbor_frame import Frame, FrameType
 import queue
 
 
-def collect_payload(frames: queue.Queue) -> bytes:
-    """Collect all CHUNK frames, decode each as CBOR, and accumulate bytes.
+def cbor_value_to_bytes(value) -> bytes:
+    """Convert CBOR value to bytes for handlers expecting bytes."""
+    if isinstance(value, bytes):
+        return value
+    elif isinstance(value, str):
+        return value.encode('utf-8')
+    else:
+        raise ValueError(f"Expected bytes or str, got {type(value)}")
+
+
+def collect_payload(frames: queue.Queue):
+    """Collect all CHUNK frames, decode each as CBOR, and return the reconstructed value.
     PROTOCOL: Each CHUNK payload is a complete, independently decodable CBOR value.
-    For bytes values, extract and concatenate the bytes.
-    For str values, extract and concatenate as UTF-8 bytes.
+    Returns the decoded CBOR value (bytes, str, dict, list, int, etc.).
     """
     import cbor2
-    accumulated = bytearray()
+    chunks = []
     while True:
         try:
             frame = frames.get(timeout=30)
@@ -87,19 +96,27 @@ def collect_payload(frames: queue.Queue) -> bytes:
                 if frame.payload:
                     # Each CHUNK payload MUST be valid CBOR - decode it
                     value = cbor2.loads(frame.payload)
-
-                    # Extract bytes from CBOR value
-                    if isinstance(value, bytes):
-                        accumulated.extend(value)
-                    elif isinstance(value, str):
-                        accumulated.extend(value.encode('utf-8'))
-                    else:
-                        raise ValueError(f"Unexpected CBOR type in CHUNK: expected bytes or str, got {type(value)}")
+                    chunks.append(value)
             elif frame.frame_type == FrameType.END:
                 break
         except queue.Empty:
             break
-    return bytes(accumulated)
+
+    # Reconstruct value from chunks
+    if not chunks:
+        return None
+    elif len(chunks) == 1:
+        return chunks[0]
+    else:
+        # Multiple chunks - concatenate bytes/strings or collect as list
+        first = chunks[0]
+        if isinstance(first, bytes):
+            return b''.join(c for c in chunks if isinstance(c, bytes))
+        elif isinstance(first, str):
+            return ''.join(c for c in chunks if isinstance(c, str))
+        else:
+            # For other types (dict, int, etc.), return as list
+            return chunks
 
 
 def collect_peer_response(peer_frames: queue.Queue):
@@ -336,13 +353,15 @@ def build_manifest() -> CapManifest:
 def handle_echo(frames: queue.Queue, emitter, peer):
     """Echo - returns input as-is."""
     payload = collect_payload(frames)
-    emitter.emit_cbor(payload)
+    payload_bytes = cbor_value_to_bytes(payload)
+    emitter.emit_cbor(payload_bytes)
 
 
 def handle_double(frames: queue.Queue, emitter, peer):
     """Double - doubles a number."""
     payload = collect_payload(frames)
-    data = json.loads(payload)
+    # collect_payload returns dict for CBOR Maps, bytes for CBOR Bytes
+    data = payload if isinstance(payload, dict) else json.loads(payload)
     value = data["value"]
     result = value * 2
     result_bytes = json.dumps(result).encode('utf-8')
@@ -352,7 +371,8 @@ def handle_double(frames: queue.Queue, emitter, peer):
 def handle_stream_chunks(frames: queue.Queue, emitter, peer):
     """Stream chunks - emits N chunks."""
     payload = collect_payload(frames)
-    data = json.loads(payload)
+    # collect_payload returns dict for CBOR Maps, bytes for CBOR Bytes
+    data = payload if isinstance(payload, dict) else json.loads(payload)
     count = data["value"]
 
     for i in range(count):
@@ -365,13 +385,15 @@ def handle_stream_chunks(frames: queue.Queue, emitter, peer):
 def handle_binary_echo(frames: queue.Queue, emitter, peer):
     """Binary echo - echoes binary data."""
     payload = collect_payload(frames)
-    emitter.emit_cbor(payload)
+    payload_bytes = cbor_value_to_bytes(payload)
+    emitter.emit_cbor(payload_bytes)
 
 
 def handle_slow_response(frames: queue.Queue, emitter, peer):
     """Slow response - sleeps before responding."""
     payload = collect_payload(frames)
-    data = json.loads(payload)
+    # collect_payload returns dict for CBOR Maps, bytes for CBOR Bytes
+    data = payload if isinstance(payload, dict) else json.loads(payload)
     sleep_ms = data["value"]
 
     time.sleep(sleep_ms / 1000.0)
@@ -383,7 +405,8 @@ def handle_slow_response(frames: queue.Queue, emitter, peer):
 def handle_generate_large(frames: queue.Queue, emitter, peer):
     """Generate large - generates large payload."""
     payload = collect_payload(frames)
-    data = json.loads(payload)
+    # collect_payload returns dict for CBOR Maps, bytes for CBOR Bytes
+    data = payload if isinstance(payload, dict) else json.loads(payload)
     size = data["value"]
 
     # Generate repeating pattern
@@ -398,7 +421,8 @@ def handle_generate_large(frames: queue.Queue, emitter, peer):
 def handle_with_status(frames: queue.Queue, emitter, peer):
     """With status - emits status messages during processing."""
     payload = collect_payload(frames)
-    data = json.loads(payload)
+    # collect_payload returns dict for CBOR Maps, bytes for CBOR Bytes
+    data = payload if isinstance(payload, dict) else json.loads(payload)
     steps = data["value"]
 
     for i in range(steps):
@@ -412,7 +436,8 @@ def handle_with_status(frames: queue.Queue, emitter, peer):
 def handle_throw_error(frames: queue.Queue, emitter, peer):
     """Throw error - returns an error."""
     payload = collect_payload(frames)
-    data = json.loads(payload)
+    # collect_payload returns dict for CBOR Maps, bytes for CBOR Bytes
+    data = payload if isinstance(payload, dict) else json.loads(payload)
     message = data["value"]
     raise RuntimeError(message)
 
@@ -434,7 +459,8 @@ def handle_peer_echo(frames: queue.Queue, emitter, peer):
 def handle_nested_call(frames: queue.Queue, emitter, peer):
     """Nested call - makes a peer call to double, then doubles again."""
     payload = collect_payload(frames)
-    data = json.loads(payload)
+    # collect_payload returns dict for CBOR Maps, bytes for CBOR Bytes
+    data = payload if isinstance(payload, dict) else json.loads(payload)
     value = data["value"]
 
     # Call host's double capability
@@ -462,7 +488,8 @@ def handle_nested_call(frames: queue.Queue, emitter, peer):
 def handle_heartbeat_stress(frames: queue.Queue, emitter, peer):
     """Heartbeat stress - long operation to test heartbeats."""
     payload = collect_payload(frames)
-    data = json.loads(payload)
+    # collect_payload returns dict for CBOR Maps, bytes for CBOR Bytes
+    data = payload if isinstance(payload, dict) else json.loads(payload)
     duration_ms = data["value"]
 
     # Sleep in small chunks to allow heartbeat processing
@@ -478,7 +505,8 @@ def handle_heartbeat_stress(frames: queue.Queue, emitter, peer):
 def handle_concurrent_stress(frames: queue.Queue, emitter, peer):
     """Concurrent stress - simulates concurrent workload."""
     payload = collect_payload(frames)
-    data = json.loads(payload)
+    # collect_payload returns dict for CBOR Maps, bytes for CBOR Bytes
+    data = payload if isinstance(payload, dict) else json.loads(payload)
     work_units = data["value"]
 
     # Simulate work
@@ -501,8 +529,9 @@ def handle_get_manifest(frames: queue.Queue, emitter, peer):
 def handle_process_large(frames: queue.Queue, emitter, peer):
     """Process large - receives large bytes, returns size and checksum."""
     payload = collect_payload(frames)
-    size = len(payload)
-    checksum = hashlib.sha256(payload).hexdigest()
+    payload_bytes = cbor_value_to_bytes(payload)
+    size = len(payload_bytes)
+    checksum = hashlib.sha256(payload_bytes).hexdigest()
 
     result = {
         "size": size,
