@@ -329,7 +329,7 @@ fn build_manifest() -> CapManifest {
             let mut cap = Cap::new(
                 CapUrnBuilder::new()
                     .tag("op", "read_file_info")
-                    .in_spec("media:invoice-path;textable;form=scalar")
+                    .in_spec("media:invoice;file-path;textable;form=scalar")
                     .out_spec("media:invoice-metadata;json;textable;form=map")
                     .build()
                     .unwrap(),
@@ -337,7 +337,7 @@ fn build_manifest() -> CapManifest {
                 "read_file_info".to_string(),
             );
             cap.args = vec![CapArg {
-                media_urn: "media:invoice-path;textable;form=scalar".to_string(),
+                media_urn: "media:invoice;file-path;textable;form=scalar".to_string(),
                 required: true,
                 sources: vec![
                     ArgSource::Stdin {

@@ -172,7 +172,7 @@ def build_manifest() -> CapManifest:
     read_file_info_cap = Cap(
         urn=CapUrnBuilder()
             .tag("op", "read_file_info")
-            .in_spec("media:invoice-path;textable;form=scalar")
+            .in_spec("media:invoice;file-path;textable;form=scalar")
             .out_spec("media:invoice-metadata;json;textable;form=map")
             .build(),
         title="Read File Info",
@@ -180,7 +180,7 @@ def build_manifest() -> CapManifest:
     )
     read_file_info_cap.args = [
         CapArg(
-            media_urn="media:invoice-path;textable;form=scalar",
+            media_urn="media:invoice;file-path;textable;form=scalar",
             required=True,
             sources=[
                 StdinSource("media:bytes"),

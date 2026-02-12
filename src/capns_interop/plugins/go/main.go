@@ -286,13 +286,13 @@ func buildManifest() *capns.CapManifest {
 			cap := capns.NewCap(
 				mustBuild(capns.NewCapUrnBuilder().
 					Tag("op", "read_file_info").
-					InSpec("media:invoice-path;textable;form=scalar").
+					InSpec("media:invoice;file-path;textable;form=scalar").
 					OutSpec("media:invoice-metadata;json;textable;form=map")),
 				"Read File Info", "read_file_info",
 			)
 			cap.Args = []capns.CapArg{
 				{
-					MediaUrn: "media:invoice-path;textable;form=scalar",
+					MediaUrn: "media:invoice;file-path;textable;form=scalar",
 					Required: true,
 					Sources: []capns.ArgSource{
 						{Stdin: &stdin},
