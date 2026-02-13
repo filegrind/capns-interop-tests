@@ -103,10 +103,12 @@ def read_response(reader: FrameReader, timeout_frames: int = 100):
     import cbor2
     chunks = []
     frames = []
+
     for _ in range(timeout_frames):
         frame = reader.read()
         if frame is None:
             break
+
         frames.append(frame)
         if frame.frame_type == FrameType.CHUNK and frame.payload:
             # Each CHUNK MUST be independently decodable - fail hard if not

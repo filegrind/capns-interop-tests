@@ -11,12 +11,12 @@ import pytest
 
 from capns_interop import TEST_CAPS
 from capns_interop.framework.frame_test_helper import (
-    HostProcess,
     make_req_id,
     send_request,
     read_response,
     decode_cbor_response,
 )
+from capns_interop.framework.relay_switch_helper import RelaySwitchProcess
 
 SUPPORTED_HOST_LANGS = ["python", "go", "rust", "swift"]
 SUPPORTED_PLUGIN_LANGS = ["rust", "go", "python", "swift"]
@@ -31,8 +31,10 @@ def test_peer_echo(relay_host_binaries, plugin_binaries, host_lang, plugin_lang)
     Plugin receives peer_echo request, calls back to echo capability via
     PeerInvoker, and returns the result. The PluginHost routes the peer
     request to the plugin's own echo handler.
+
+    Uses RelaySwitch for peer request routing (plugin → plugin calls).
     """
-    host = HostProcess(
+    host = RelaySwitchProcess(
         str(relay_host_binaries[host_lang]),
         [str(plugin_binaries[plugin_lang])],
     )
@@ -60,8 +62,10 @@ def test_nested_call(relay_host_binaries, plugin_binaries, host_lang, plugin_lan
     Plugin receives nested_call with value 21, calls host's double (21 * 2 = 42),
     then doubles the result locally (42 * 2 = 84). The PluginHost routes the
     peer double request to the plugin's own double handler.
+
+    Uses RelaySwitch for peer request routing (plugin → plugin calls).
     """
-    host = HostProcess(
+    host = RelaySwitchProcess(
         str(relay_host_binaries[host_lang]),
         [str(plugin_binaries[plugin_lang])],
     )
@@ -91,8 +95,11 @@ def test_nested_call(relay_host_binaries, plugin_binaries, host_lang, plugin_lan
 @pytest.mark.parametrize("host_lang", SUPPORTED_HOST_LANGS)
 @pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
 def test_bidirectional_echo_multi(relay_host_binaries, plugin_binaries, host_lang, plugin_lang):
-    """Test multiple sequential bidirectional echo calls."""
-    host = HostProcess(
+    """Test multiple sequential bidirectional echo calls.
+
+    Uses RelaySwitch for peer request routing (plugin → plugin calls).
+    """
+    host = RelaySwitchProcess(
         str(relay_host_binaries[host_lang]),
         [str(plugin_binaries[plugin_lang])],
     )

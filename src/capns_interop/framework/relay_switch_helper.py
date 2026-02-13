@@ -61,24 +61,31 @@ class RelaySwitchProcess:
             write=self.host.proc.stdin
         )])
 
-        # Wait for plugin to connect and advertise capabilities
-        # The relay host sends empty RelayNotify initially, then updates when plugin connects
+        # Wait for plugin to connect and send RelayNotify with capabilities
+        # With capability update architecture:
+        #   1. RelaySlave sends initial empty RelayNotify
+        #   2. AsyncPluginHost spawns plugin, plugin sends HELLO
+        #   3. AsyncPluginHost rebuilds capabilities, sends updated RelayNotify
+        #   4. RelaySlave forwards updated RelayNotify to RelaySwitch
         import json
         import sys
         import time
-        max_wait = 5.0
+        max_wait = 2.0  # Reduced from 5s (should be fast now)
         start = time.time()
         while time.time() - start < max_wait:
             caps_json = json.loads(self.switch.capabilities().decode('utf-8'))
             caps_list = caps_json.get('capabilities', [])
             if caps_list:
-                print(f"[RelaySwitch] Received {len(caps_list)} capabilities after {time.time() - start:.2f}s", file=sys.stderr)
+                print(f"[RelaySwitch] Received {len(caps_list)} capabilities after {time.time() - start:.3f}s", file=sys.stderr)
                 break
-            time.sleep(0.05)
+            time.sleep(0.01)  # Poll more frequently (10ms vs 50ms)
         else:
             caps_json = json.loads(self.switch.capabilities().decode('utf-8'))
             caps_list = caps_json.get('capabilities', [])
-            raise RuntimeError(f"No capabilities received after {max_wait}s (got: {caps_list})")
+            raise RuntimeError(
+                f"No capabilities received after {max_wait}s (got: {caps_list}). "
+                f"Check that AsyncPluginHost sends RelayNotify updates and RelaySlave forwards them."
+            )
 
         # Return a simple API that mimics FrameReader/Writer but uses RelaySwitch
         self.reader = RelaySwitchReader(self.switch)
