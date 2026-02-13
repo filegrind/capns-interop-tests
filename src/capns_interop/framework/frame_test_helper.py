@@ -17,7 +17,7 @@ _project_root = Path(__file__).parent.parent.parent.parent.parent
 sys.path.insert(0, str(_project_root / "capns-py" / "src"))
 sys.path.insert(0, str(_project_root / "tagged-urn-py" / "src"))
 
-from capns.cbor_frame import Frame, FrameType, Limits, MessageId
+from capns.cbor_frame import Frame, FrameType, Limits, MessageId, compute_checksum
 from capns.cbor_io import FrameReader, FrameWriter
 
 
@@ -54,23 +54,29 @@ def send_request(
     # Chunk large payloads and CBOR-encode each chunk
     offset = 0
     seq = 0
+    chunk_index = 0
     while offset < len(payload):
         chunk_size = min(max_chunk, len(payload) - offset)
         chunk_bytes = payload[offset:offset + chunk_size]
 
         # CBOR-encode chunk as byte string - independently decodable
         cbor_payload = cbor2.dumps(chunk_bytes)
+        checksum = compute_checksum(cbor_payload)
 
-        writer.write(Frame.chunk(req_id, stream_id, seq, cbor_payload))
+        writer.write(Frame.chunk(req_id, stream_id, seq, cbor_payload, chunk_index, checksum))
         offset += chunk_size
         seq += 1
+        chunk_index += 1
 
     # Send at least one CHUNK even for empty payload (to match protocol)
     if len(payload) == 0:
         cbor_payload = cbor2.dumps(b"")
-        writer.write(Frame.chunk(req_id, stream_id, 0, cbor_payload))
+        checksum = compute_checksum(cbor_payload)
+        writer.write(Frame.chunk(req_id, stream_id, 0, cbor_payload, 0, checksum))
+        chunk_index = 1
 
-    writer.write(Frame.stream_end(req_id, stream_id))
+    chunk_count = chunk_index
+    writer.write(Frame.stream_end(req_id, stream_id, chunk_count))
     writer.write(Frame.end(req_id))
 
 
