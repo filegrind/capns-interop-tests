@@ -29,7 +29,7 @@ pytest tests/test_matrix.py -v
 
 ## Architecture
 
-- **Python orchestrator** uses `AsyncPluginHost` to test plugins in different languages
+- **Python orchestrator** uses `PluginHostRuntime` to test plugins in different languages
 - **Test plugins** implement identical 13 capabilities across Rust/Python/Swift
 - **9 language-pair configurations**: 3 languages × 3 languages
 - **28 scenarios** covering all protocol features

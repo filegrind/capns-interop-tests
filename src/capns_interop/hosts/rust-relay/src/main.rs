@@ -1,19 +1,24 @@
 /// Multi-plugin relay host test binary for cross-language interop tests.
 ///
-/// Creates an AsyncPluginHost managing N plugin subprocesses, with optional RelaySlave layer.
-/// Communicates via raw CBOR frames on stdin/stdout.
+/// Creates an PluginHostRuntime managing N plugin subprocesses, with optional RelaySlave layer.
+/// Communicates via raw CBOR frames on stdin/stdout OR Unix socket.
 ///
 /// Without --relay:
-///     stdin/stdout carry raw CBOR frames (AsyncPluginHost relay interface).
+///     stdin/stdout carry raw CBOR frames (PluginHostRuntime relay interface).
 ///
 /// With --relay:
-///     stdin/stdout carry CBOR frames including relay-specific types.
-///     RelaySlave sits between stdin/stdout and AsyncPluginHost.
+///     stdin/stdout OR socket carry CBOR frames including relay-specific types.
+///     RelaySlave sits between stdin/stdout (or socket) and PluginHostRuntime.
 ///     Initial RelayNotify sent on startup.
+///
+/// With --listen <socket-path>:
+///     Creates a Unix socket listener and accepts ONE connection from router.
+///     Router and host are independent processes (not parent-child).
 use std::os::unix::io::{FromRawFd, IntoRawFd};
+use std::os::unix::net::UnixListener;
 use std::process::Command;
 
-use capns::async_plugin_host::AsyncPluginHost;
+use capns::plugin_host_runtime::PluginHostRuntime;
 use capns::cbor_frame::Limits;
 use capns::cbor_io::{FrameReader, FrameWriter};
 use capns::plugin_relay::RelaySlave;
@@ -22,12 +27,14 @@ use capns::plugin_relay::RelaySlave;
 struct Args {
     plugins: Vec<String>,
     relay: bool,
+    listen_socket: Option<String>,
 }
 
 fn parse_args() -> Args {
     let mut args = Args {
         plugins: Vec::new(),
         relay: false,
+        listen_socket: None,
     };
     let argv: Vec<String> = std::env::args().skip(1).collect();
     let mut i = 0;
@@ -43,6 +50,14 @@ fn parse_args() -> Args {
             }
             "--relay" => {
                 args.relay = true;
+            }
+            "--listen" => {
+                i += 1;
+                if i >= argv.len() {
+                    eprintln!("ERROR: --listen requires a socket path argument");
+                    std::process::exit(1);
+                }
+                args.listen_socket = Some(argv[i].clone());
             }
             other => {
                 eprintln!("ERROR: unknown argument: {}", other);
@@ -102,7 +117,7 @@ async fn main() {
         std::process::exit(1);
     }
 
-    let mut host = AsyncPluginHost::new();
+    let mut host = PluginHostRuntime::new();
     let mut children: Vec<std::process::Child> = Vec::new();
 
     for plugin_path in &args.plugins {
@@ -123,7 +138,11 @@ async fn main() {
     }
 
     if args.relay {
-        run_with_relay(host).await;
+        if let Some(socket_path) = args.listen_socket {
+            run_with_relay_socket(host, &socket_path).await;
+        } else {
+            run_with_relay(host).await;
+        }
     } else {
         run_direct(host).await;
     }
@@ -135,17 +154,17 @@ async fn main() {
     }
 }
 
-async fn run_direct(mut host: AsyncPluginHost) {
+async fn run_direct(mut host: PluginHostRuntime) {
     let relay_read = tokio::io::stdin();
     let relay_write = tokio::io::stdout();
 
     if let Err(e) = host.run(relay_read, relay_write, || Vec::new()).await {
-        eprintln!("AsyncPluginHost.run error: {}", e);
+        eprintln!("PluginHostRuntime.run error: {}", e);
         std::process::exit(1);
     }
 }
 
-async fn run_with_relay(mut host: AsyncPluginHost) {
+async fn run_with_relay(mut host: PluginHostRuntime) {
     // Create pipe pairs for slave ↔ host communication
     // Pipe A: slave writes → host reads
     let (a_read, a_write) = create_pipe();
@@ -172,13 +191,19 @@ async fn run_with_relay(mut host: AsyncPluginHost) {
         let socket_writer = FrameWriter::new(std::io::BufWriter::new(stdout_file));
 
         // Send initial empty RelayNotify (plugins haven't connected yet)
-        // AsyncPluginHost will send updated RelayNotify after plugins connect
-        let empty_manifest = br#"{"capabilities":[]}"#;
+        // PluginHostRuntime will send updated RelayNotify after plugins connect
+        // RelayNotify contains just an array of capability URN strings
+        let empty_caps: Vec<String> = Vec::new();
+        let empty_caps_json = serde_json::to_vec(&empty_caps)
+            .expect("Failed to serialize empty caps array");
+        eprintln!("[RelayHost] Initial RelayNotify payload: {} bytes: {:?}",
+                  empty_caps_json.len(),
+                  std::str::from_utf8(&empty_caps_json).unwrap_or("<invalid UTF-8>"));
         let limits = Limits::default();
         let result = slave.run(
             socket_reader,
             socket_writer,
-            Some((empty_manifest.as_slice(), &limits)),
+            Some((&empty_caps_json, &limits)),
         );
 
         if let Err(e) = result {
@@ -191,4 +216,82 @@ async fn run_with_relay(mut host: AsyncPluginHost) {
     // Abort host (slave pipes are closed, host should exit)
     host_handle.abort();
     let _ = host_handle.await;
+}
+
+async fn run_with_relay_socket(mut host: PluginHostRuntime, socket_path: &str) {
+    // Remove existing socket if it exists
+    let _ = std::fs::remove_file(socket_path);
+
+    // Create Unix socket listener
+    let listener = UnixListener::bind(socket_path).unwrap_or_else(|e| {
+        eprintln!("Failed to bind socket {}: {}", socket_path, e);
+        std::process::exit(1);
+    });
+
+    eprintln!("[RelayHost] Listening on socket: {}", socket_path);
+
+    // Accept ONE connection from router
+    let (socket, _addr) = listener.accept().unwrap_or_else(|e| {
+        eprintln!("Failed to accept connection: {}", e);
+        std::process::exit(1);
+    });
+
+    eprintln!("[RelayHost] Router connected");
+
+    // Create pipe pairs for slave ↔ host communication
+    // Pipe A: slave writes → host reads
+    let (a_read, a_write) = create_pipe();
+    // Pipe B: host writes → slave reads
+    let (b_read, b_write) = create_pipe();
+
+    // Run host in a tokio task with async pipe ends
+    let host_relay_read = tokio::fs::File::from_std(a_read);
+    let host_relay_write = tokio::fs::File::from_std(b_write);
+
+    let host_handle = tokio::spawn(async move {
+        host.run(host_relay_read, host_relay_write, || Vec::new()).await
+    });
+
+    // Clone socket for bidirectional communication
+    let socket_read = socket.try_clone().unwrap_or_else(|e| {
+        eprintln!("Failed to clone socket: {}", e);
+        std::process::exit(1);
+    });
+
+    // Run slave in a blocking thread with sync pipe ends + socket
+    let slave_handle = tokio::task::spawn_blocking(move || {
+        let slave = RelaySlave::new(b_read, a_write);
+
+        let socket_reader = FrameReader::new(std::io::BufReader::new(socket_read));
+        let socket_writer = FrameWriter::new(std::io::BufWriter::new(socket));
+
+        // Send initial empty RelayNotify (plugins haven't connected yet)
+        // PluginHostRuntime will send updated RelayNotify after plugins connect
+        let empty_caps: Vec<String> = Vec::new();
+        let empty_caps_json = serde_json::to_vec(&empty_caps)
+            .expect("Failed to serialize empty caps array");
+        eprintln!("[RelayHost] Initial RelayNotify payload: {} bytes: {:?}",
+                  empty_caps_json.len(),
+                  std::str::from_utf8(&empty_caps_json).unwrap_or("<invalid UTF-8>"));
+        let limits = Limits::default();
+        let result = slave.run(
+            socket_reader,
+            socket_writer,
+            Some((&empty_caps_json, &limits)),
+        );
+
+        if let Err(e) = result {
+            eprintln!("RelaySlave.run error: {}", e);
+        }
+
+        eprintln!("[RelayHost] Slave finished, router disconnected");
+    });
+
+    // Wait for slave to finish (router closed connection)
+    let _ = slave_handle.await;
+    // Abort host (slave pipes are closed, host should exit)
+    host_handle.abort();
+    let _ = host_handle.await;
+
+    eprintln!("[RelayHost] Shutting down");
 }

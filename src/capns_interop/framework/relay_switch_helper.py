@@ -64,8 +64,8 @@ class RelaySwitchProcess:
         # Wait for plugin to connect and send RelayNotify with capabilities
         # With capability update architecture:
         #   1. RelaySlave sends initial empty RelayNotify
-        #   2. AsyncPluginHost spawns plugin, plugin sends HELLO
-        #   3. AsyncPluginHost rebuilds capabilities, sends updated RelayNotify
+        #   2. PluginHostRuntime spawns plugin, plugin sends HELLO
+        #   3. PluginHostRuntime rebuilds capabilities, sends updated RelayNotify
         #   4. RelaySlave forwards updated RelayNotify to RelaySwitch
         import json
         import sys
@@ -84,7 +84,7 @@ class RelaySwitchProcess:
             caps_list = caps_json.get('capabilities', [])
             raise RuntimeError(
                 f"No capabilities received after {max_wait}s (got: {caps_list}). "
-                f"Check that AsyncPluginHost sends RelayNotify updates and RelaySlave forwards them."
+                f"Check that PluginHostRuntime sends RelayNotify updates and RelaySlave forwards them."
             )
 
         # Return a simple API that mimics FrameReader/Writer but uses RelaySwitch

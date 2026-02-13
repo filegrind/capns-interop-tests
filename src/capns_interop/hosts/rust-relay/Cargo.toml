@@ -11,3 +11,4 @@ path = "src/main.rs"
 capns = { path = "../../../../../capns" }
 tokio = { version = "1.0", features = ["full"] }
 libc = "0.2"
+serde_json = "1.0"

@@ -1,10 +1,10 @@
 //! Rust test host binary for cross-language matrix tests.
 //!
 //! Reads JSON-line commands from stdin, manages a plugin subprocess
-//! via AsyncPluginHost with a TestRouter, and writes JSON-line responses to stdout.
+//! via PluginHostRuntime with a TestRouter, and writes JSON-line responses to stdout.
 
 use base64::Engine;
-use capns::async_plugin_host::{AsyncHostError, AsyncPluginHost, PluginResponse, ResponseChunk};
+use capns::plugin_host_runtime::{AsyncHostError, PluginHostRuntime, PluginResponse, ResponseChunk};
 use capns::CapArgumentValue;
 use capns::cap_router::{ArcCapRouter, CapRouter, PeerRequestHandle};
 use capns::cbor_frame::{Frame, FrameType};
@@ -151,7 +151,7 @@ impl PeerRequestHandle for TestRequestHandle {
 }
 
 struct RustTestHost {
-    host: Option<AsyncPluginHost>,
+    host: Option<PluginHostRuntime>,
     child: Option<tokio::process::Child>,
 }
 
@@ -210,8 +210,8 @@ impl RustTestHost {
         // Create router with echo and double handlers
         let router: ArcCapRouter = Arc::new(TestRouter::new());
 
-        // Create AsyncPluginHost with router
-        let host = match AsyncPluginHost::new_with_router(stdin, stdout, router).await {
+        // Create PluginHostRuntime with router
+        let host = match PluginHostRuntime::new_with_router(stdin, stdout, router).await {
             Ok(h) => h,
             Err(e) => {
                 let _ = child.kill().await;

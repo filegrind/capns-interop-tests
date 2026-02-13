@@ -1,0 +1,11 @@
+[package]
+name = "capns-interop-router-rust"
+version = "1.0.0"
+edition = "2021"
+
+[dependencies]
+capns = { path = "../../../../../capns" }
+
+[[bin]]
+name = "capns-interop-router-rust"
+path = "src/main.rs"
