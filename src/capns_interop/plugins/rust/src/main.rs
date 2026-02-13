@@ -79,28 +79,30 @@ fn collect_payload(frames: Receiver<Frame>) -> ciborium::Value {
 // For arrays/maps, multiple chunks are combined
 fn collect_peer_response(peer_frames: Receiver<Frame>) -> Result<ciborium::Value, RuntimeError> {
     let mut chunks = Vec::new();
-    eprintln!("[collect_peer_response] Waiting for frames...");
+    eprintln!("[collect_peer_response] Starting to collect frames");
     for frame in peer_frames {
-        eprintln!("[collect_peer_response] Received frame type: {:?}", frame.frame_type);
+        eprintln!("[collect_peer_response] Received frame: {:?}", frame.frame_type);
         match frame.frame_type {
             FrameType::Chunk => {
                 if let Some(payload) = frame.payload {
-                    eprintln!("[collect_peer_response] Chunk payload length: {}", payload.len());
+                    eprintln!("[collect_peer_response] CHUNK payload length: {}", payload.len());
                     // Each CHUNK payload MUST be valid CBOR - decode it
                     let value: ciborium::Value = ciborium::from_reader(&payload[..])
                         .map_err(|e| RuntimeError::Deserialize(format!("Invalid CBOR in CHUNK: {}", e)))?;
                     eprintln!("[collect_peer_response] Decoded value: {:?}", value);
                     chunks.push(value);
+                } else {
+                    eprintln!("[collect_peer_response] CHUNK has no payload");
                 }
             }
             FrameType::End => {
-                eprintln!("[collect_peer_response] Got END frame");
+                eprintln!("[collect_peer_response] Received END, breaking");
                 break;
             }
             FrameType::Err => {
                 let code = frame.error_code().unwrap_or("UNKNOWN");
                 let message = frame.error_message().unwrap_or("Unknown error");
-                eprintln!("[collect_peer_response] Got ERR frame: [{}] {}", code, message);
+                eprintln!("[collect_peer_response] Received ERR: [{}] {}", code, message);
                 return Err(RuntimeError::PeerRequest(format!("[{}] {}", code, message)));
             }
             _ => {
@@ -108,10 +110,11 @@ fn collect_peer_response(peer_frames: Receiver<Frame>) -> Result<ciborium::Value
             }
         }
     }
-    eprintln!("[collect_peer_response] Finished collecting, got {} chunks", chunks.len());
 
+    eprintln!("[collect_peer_response] Collected {} chunks", chunks.len());
     // Reconstruct value from chunks
     if chunks.is_empty() {
+        eprintln!("[collect_peer_response] ERROR: No chunks received");
         return Err(RuntimeError::Deserialize("No chunks received".to_string()));
     } else if chunks.len() == 1 {
         // Single chunk - return as-is
@@ -441,7 +444,9 @@ fn handle_double(
     emitter: &dyn StreamEmitter,
     _peer: &dyn PeerInvoker,
 ) -> Result<(), RuntimeError> {
+    eprintln!("[double] Handler starting");
     let cbor_value = collect_payload(frames);
+    eprintln!("[double] Collected payload: {:?}", cbor_value);
     let json_bytes = cbor_map_to_json_bytes(&cbor_value)?;
     let req: ValueRequest = serde_json::from_slice(&json_bytes)
         .map_err(|e| RuntimeError::Handler(format!("Invalid JSON: {}", e)))?;
@@ -451,10 +456,13 @@ fn handle_double(
         .as_u64()
         .ok_or_else(|| RuntimeError::Handler("Expected number".to_string()))?;
 
+    eprintln!("[double] Parsed value: {}, doubling to: {}", value, value * 2);
     let result = value * 2;
 
     // Return as CBOR integer (per protocol: int sent as single chunk)
+    eprintln!("[double] Emitting result: {}", result);
     emitter.emit_cbor(&ciborium::Value::Integer(result.into()))?;
+    eprintln!("[double] Handler complete");
     Ok(())
 }
 
@@ -649,6 +657,7 @@ fn handle_nested_call(
     let host_result = match cbor_value {
         ciborium::Value::Integer(n) => {
             let val: i128 = n.into();
+            eprintln!("[nested_call] Converted integer: {}", val);
             val as u64
         }
         _ => {
@@ -656,13 +665,13 @@ fn handle_nested_call(
         }
     };
 
-    eprintln!("[nested_call] Host result: {}", host_result);
-
     // Double again locally
     let final_result = host_result * 2;
     eprintln!("[nested_call] Final result: {}", final_result);
 
+    eprintln!("[nested_call] Emitting result");
     emitter.emit_cbor(&ciborium::Value::Integer(final_result.into()))?;
+    eprintln!("[nested_call] Handler complete");
     Ok(())
 }
 

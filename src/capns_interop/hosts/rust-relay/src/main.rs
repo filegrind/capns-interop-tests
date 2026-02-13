@@ -152,10 +152,6 @@ async fn run_with_relay(mut host: AsyncPluginHost) {
     // Pipe B: host writes → slave reads
     let (b_read, b_write) = create_pipe();
 
-    let caps = host.capabilities().to_vec();
-    let caps_data = if caps.is_empty() { b"[]".to_vec() } else { caps };
-    let limits = Limits::default();
-
     // Run host in a tokio task with async pipe ends
     let host_relay_read = tokio::fs::File::from_std(a_read);
     let host_relay_write = tokio::fs::File::from_std(b_write);
@@ -175,10 +171,14 @@ async fn run_with_relay(mut host: AsyncPluginHost) {
         let socket_reader = FrameReader::new(std::io::BufReader::new(stdin_file));
         let socket_writer = FrameWriter::new(std::io::BufWriter::new(stdout_file));
 
+        // Send initial empty RelayNotify (plugins haven't connected yet)
+        // AsyncPluginHost will send updated RelayNotify after plugins connect
+        let empty_manifest = br#"{"capabilities":[]}"#;
+        let limits = Limits::default();
         let result = slave.run(
             socket_reader,
             socket_writer,
-            Some((&caps_data, &limits)),
+            Some((empty_manifest.as_slice(), &limits)),
         );
 
         if let Err(e) = result {
