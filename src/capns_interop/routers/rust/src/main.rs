@@ -8,6 +8,7 @@
 ///   capns-interop-router-rust --connect <socket-path> [--connect <another-socket>]
 use std::os::unix::net::UnixStream;
 
+use capns::cbor_frame::SeqAssigner;
 use capns::cbor_io::{FrameReader, FrameWriter};
 use capns::relay_switch::RelaySwitch;
 
@@ -131,6 +132,7 @@ fn main() {
     // Main thread: multiplex stdin_rx and RelaySwitch
     let stdout = std::io::stdout();
     let mut writer = FrameWriter::new(std::io::BufWriter::new(stdout.lock()));
+    let mut stdout_seq = SeqAssigner::new();
 
     eprintln!("[Router/main] Starting main multiplexer loop");
 
@@ -159,12 +161,15 @@ fn main() {
         // Use a short timeout so we can quickly check stdin again
         use std::time::Duration;
         match switch.read_from_masters_timeout(Duration::from_millis(10)) {
-            Ok(Some(frame)) => {
+            Ok(Some(mut frame)) => {
                 eprintln!("[Router/main] Received from master: {:?} (id={:?})", frame.frame_type, frame.id);
-                // Write to stdout (send to test orchestration)
+                stdout_seq.assign(&mut frame);
                 if let Err(e) = writer.write(&frame) {
                     eprintln!("[Router/main] Error writing to stdout: {}", e);
                     break;
+                }
+                if matches!(frame.frame_type, capns::cbor_frame::FrameType::End | capns::cbor_frame::FrameType::Err) {
+                    stdout_seq.remove(&frame.id);
                 }
             }
             Ok(None) => {
