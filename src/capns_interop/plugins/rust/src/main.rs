@@ -187,7 +187,7 @@ fn extract_request_info(frames: Receiver<Frame>) -> Result<(MessageId, Option<Me
 fn build_manifest() -> CapManifest {
     let caps = vec![
         Cap::new(
-            CapUrn::from_string(capns::CAP_ECHO).unwrap(),
+            CapUrn::from_string(capns::CAP_IDENTITY).unwrap(),
             "Echo".to_string(),
             "echo".to_string(),
         ),
