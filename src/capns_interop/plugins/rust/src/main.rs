@@ -1,6 +1,6 @@
 use capns::{
     ArgSource, Cap, CapArg, CapArgumentValue, CapManifest, CapOutput, CapUrnBuilder,
-    FrameSender, PeerInvoker, PluginRuntime, RuntimeError, StreamEmitter,
+    FrameSender, PeerInvoker, PluginRuntime, RuntimeError, StreamEmitter, CapUrn,
 };
 use capns::cbor_frame::{Frame, FrameType, MessageId};
 use crossbeam_channel::Receiver;
@@ -187,12 +187,7 @@ fn extract_request_info(frames: Receiver<Frame>) -> Result<(MessageId, Option<Me
 fn build_manifest() -> CapManifest {
     let caps = vec![
         Cap::new(
-            CapUrnBuilder::new()
-                .tag("op", "echo")
-                .in_spec("media:customer-message;textable;form=scalar")
-                .out_spec("media:customer-message;textable;form=scalar")
-                .build()
-                .unwrap(),
+            CapUrn::from_string(capns::CAP_ECHO).unwrap(),
             "Echo".to_string(),
             "echo".to_string(),
         ),
