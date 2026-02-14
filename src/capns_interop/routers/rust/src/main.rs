@@ -143,9 +143,17 @@ fn main() {
         match stdin_rx.try_recv() {
             Ok(frame) => {
                 eprintln!("[Router/main] Sending stdin frame to master: {:?} (id={:?})", frame.frame_type, frame.id);
+                let frame_id = frame.id.clone();
+                let is_req = frame.frame_type == capns::cbor_frame::FrameType::Req;
                 if let Err(e) = switch.send_to_master(frame) {
                     eprintln!("[Router/main] Error sending to master: {}", e);
-                    // Continue - might be recoverable (e.g., NoHandler)
+                    // On REQ failure, send ERR back to engine so it doesn't hang
+                    if is_req {
+                        let err_frame = capns::cbor_frame::Frame::err(frame_id, "NO_HANDLER", &e.to_string());
+                        if let Err(write_err) = writer.write(&err_frame) {
+                            eprintln!("[Router/main] Failed to write ERR frame: {}", write_err);
+                        }
+                    }
                 }
             }
             Err(mpsc::TryRecvError::Empty) => {

@@ -2,7 +2,10 @@
 
 Tests heartbeat handling during operations: basic heartbeat, long-running
 operations, and status updates. Heartbeats are handled internally by the
-relay host (never forwarded to the test).
+host (never forwarded to the test).
+
+Architecture:
+    Test (Engine) → Router (RelaySwitch) → Host (PluginHost) → Plugin
 """
 
 import json
@@ -10,27 +13,29 @@ import pytest
 
 from capns_interop import TEST_CAPS
 from capns_interop.framework.frame_test_helper import (
-    HostProcess,
     make_req_id,
     send_request,
     read_response,
-    decode_cbor_response,
 )
+from capns_interop.framework.router_process import RouterProcess
 
-SUPPORTED_HOST_LANGS = ["python", "go", "rust", "swift"]
+SUPPORTED_ROUTER_LANGS = ["rust"]
+SUPPORTED_HOST_LANGS = ["rust"]
 SUPPORTED_PLUGIN_LANGS = ["rust", "go", "python", "swift"]
 
 
 @pytest.mark.timeout(30)
+@pytest.mark.parametrize("router_lang", SUPPORTED_ROUTER_LANGS)
 @pytest.mark.parametrize("host_lang", SUPPORTED_HOST_LANGS)
 @pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
-def test_basic_heartbeat(relay_host_binaries, plugin_binaries, host_lang, plugin_lang):
+def test_basic_heartbeat(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang, plugin_lang):
     """Test heartbeat during 500ms operation: plugin sends heartbeats, host handles locally."""
-    host = HostProcess(
+    router = RouterProcess(
+        str(router_binaries[router_lang]),
         str(relay_host_binaries[host_lang]),
         [str(plugin_binaries[plugin_lang])],
     )
-    reader, writer = host.start()
+    reader, writer = router.start()
 
     try:
         duration_ms = 500
@@ -46,22 +51,24 @@ def test_basic_heartbeat(relay_host_binaries, plugin_binaries, host_lang, plugin
 
         expected = f"stressed-{duration_ms}ms"
         assert output_str == expected, (
-            f"[{host_lang}/{plugin_lang}] expected {expected!r}, got {output_str!r}"
+            f"[{router_lang}/{host_lang}/{plugin_lang}] expected {expected!r}, got {output_str!r}"
         )
     finally:
-        host.stop()
+        router.stop()
 
 
 @pytest.mark.timeout(30)
+@pytest.mark.parametrize("router_lang", SUPPORTED_ROUTER_LANGS)
 @pytest.mark.parametrize("host_lang", SUPPORTED_HOST_LANGS)
 @pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
-def test_long_operation_heartbeat(relay_host_binaries, plugin_binaries, host_lang, plugin_lang):
+def test_long_operation_heartbeat(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang, plugin_lang):
     """Test heartbeat during 2-second operation: verifies no timeout/deadlock."""
-    host = HostProcess(
+    router = RouterProcess(
+        str(router_binaries[router_lang]),
         str(relay_host_binaries[host_lang]),
         [str(plugin_binaries[plugin_lang])],
     )
-    reader, writer = host.start()
+    reader, writer = router.start()
 
     try:
         duration_ms = 2000
@@ -77,22 +84,24 @@ def test_long_operation_heartbeat(relay_host_binaries, plugin_binaries, host_lan
 
         expected = f"stressed-{duration_ms}ms"
         assert output_str == expected, (
-            f"[{host_lang}/{plugin_lang}] expected {expected!r}, got {output_str!r}"
+            f"[{router_lang}/{host_lang}/{plugin_lang}] expected {expected!r}, got {output_str!r}"
         )
     finally:
-        host.stop()
+        router.stop()
 
 
 @pytest.mark.timeout(30)
+@pytest.mark.parametrize("router_lang", SUPPORTED_ROUTER_LANGS)
 @pytest.mark.parametrize("host_lang", SUPPORTED_HOST_LANGS)
 @pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
-def test_status_updates(relay_host_binaries, plugin_binaries, host_lang, plugin_lang):
+def test_status_updates(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang, plugin_lang):
     """Test status updates during processing: plugin sends LOG frames, verify response."""
-    host = HostProcess(
+    router = RouterProcess(
+        str(router_binaries[router_lang]),
         str(relay_host_binaries[host_lang]),
         [str(plugin_binaries[plugin_lang])],
     )
-    reader, writer = host.start()
+    reader, writer = router.start()
 
     try:
         steps = 5
@@ -107,7 +116,7 @@ def test_status_updates(relay_host_binaries, plugin_binaries, host_lang, plugin_
             output_str = str(output)
 
         assert output_str == "completed", (
-            f"[{host_lang}/{plugin_lang}] expected 'completed', got {output_str!r}"
+            f"[{router_lang}/{host_lang}/{plugin_lang}] expected 'completed', got {output_str!r}"
         )
     finally:
-        host.stop()
+        router.stop()

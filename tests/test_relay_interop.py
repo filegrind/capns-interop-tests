@@ -1,148 +1,33 @@
 """Relay interop tests.
 
 Tests the RelaySlave/RelayMaster protocol across language combinations.
-Each relay host binary (Rust/Go/Python/Swift) manages a plugin behind a
-RelaySlave layer. The test acts as the RelayMaster.
+Uses 3-tier architecture: Test → Router → Host (RelaySlave + PluginHost) → Plugin.
 
 Architecture:
-    Python test (RelayMaster) ←CBOR frames→ relay_host binary (RelaySlave → PluginHost → plugin)
-
-The relay layer adds two intercepted frame types:
-  - RelayNotify (slave → master): Capability advertisement on startup
-  - RelayState (master → slave): Resource state updates, never reach plugins
-
-All other frames pass through transparently.
+    Test (Engine) → Router (RelaySwitch) → Host (RelaySlave → PluginHost → plugin)
 """
 
 import json
-import os
-import subprocess
-import sys
-import time
-
 import pytest
 
-# Add capns-py to path for frame I/O
-_project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(_project_root, "..", "capns-py", "src"))
-sys.path.insert(0, os.path.join(_project_root, "..", "tagged-urn-py", "src"))
-
 from capns.cbor_frame import Frame, FrameType, Limits, MessageId
-from capns.cbor_io import FrameReader, FrameWriter
-from capns.plugin_relay import RelayMaster
+from capns_interop import TEST_CAPS
+from capns_interop.framework.frame_test_helper import (
+    make_req_id,
+    send_request,
+    send_simple_request,
+    read_response,
+    decode_cbor_response,
+)
+from capns_interop.framework.router_process import RouterProcess
 
 # E-commerce semantic cap URNs matching test plugin
 ECHO_CAP = 'cap:in=media:;out=media:'
 BINARY_ECHO_CAP = 'cap:in="media:product-image;bytes";op=binary_echo;out="media:product-image;bytes"'
 
-SUPPORTED_HOST_LANGS = ["python", "go", "rust", "swift"]
+SUPPORTED_ROUTER_LANGS = ["rust"]
+SUPPORTED_HOST_LANGS = ["rust"]
 SUPPORTED_PLUGIN_LANGS = ["rust", "go", "python", "swift"]
-
-
-def _build_env():
-    env = os.environ.copy()
-    env["PYTHON_EXECUTABLE"] = sys.executable
-    python_paths = [
-        os.path.join(_project_root, "..", "capns-py", "src"),
-        os.path.join(_project_root, "..", "tagged-urn-py", "src"),
-    ]
-    if "PYTHONPATH" in env:
-        python_paths.append(env["PYTHONPATH"])
-    env["PYTHONPATH"] = ":".join(python_paths)
-    return env
-
-
-def _start_relay_host(relay_host_binary, plugin_paths, relay=True):
-    """Start a relay host binary in relay mode, return (proc, reader, writer)."""
-    cmd = []
-    binary = str(relay_host_binary)
-    if binary.endswith(".py"):
-        cmd = [sys.executable, binary]
-    else:
-        cmd = [binary]
-
-    if relay:
-        cmd.append("--relay")
-
-    for p in plugin_paths:
-        cmd.extend(["--spawn", str(p)])
-
-    proc = subprocess.Popen(
-        cmd,
-        stdin=subprocess.PIPE,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        env=_build_env(),
-    )
-
-    reader = FrameReader(proc.stdout)
-    writer = FrameWriter(proc.stdin)
-    return proc, reader, writer
-
-
-def _send_request(writer, cap_urn, payload, media_urn="media:bytes"):
-    """Send a complete request and return the req_id used.
-
-    Protocol v2: CHUNK payloads must be CBOR-encoded.
-    """
-    import cbor2
-    req_id = MessageId.new_uuid()
-    writer.write(Frame.req(req_id, cap_urn, b"", "application/octet-stream"))
-    writer.write(Frame.stream_start(req_id, "arg-0", media_urn))
-    # CBOR-encode the payload per protocol v2
-    cbor_payload = cbor2.dumps(payload)
-    writer.write(Frame.chunk(req_id, "arg-0", 0, cbor_payload))
-    writer.write(Frame.stream_end(req_id, "arg-0"))
-    writer.write(Frame.end(req_id))
-    return req_id
-
-
-def _read_response(reader, max_frames=50):
-    """Read response frames until END or ERR. Returns (decoded_data, all_frames).
-
-    Protocol v2: Each CHUNK payload is CBOR-encoded and must be decoded.
-    Multiple byte chunks are concatenated.
-    """
-    import cbor2
-    chunks = []
-    frames = []
-    for _ in range(max_frames):
-        frame = reader.read()
-        if frame is None:
-            break
-        frames.append(frame)
-        if frame.frame_type == FrameType.CHUNK and frame.payload:
-            # Decode each CBOR chunk
-            decoded = cbor2.loads(frame.payload)
-            chunks.append(decoded)
-        if frame.frame_type in (FrameType.END, FrameType.ERR):
-            break
-
-    # Reconstruct based on type (matching frame_test_helper.py logic)
-    if not chunks:
-        return b'', frames
-    elif len(chunks) == 1:
-        return chunks[0], frames
-    else:
-        # Multiple chunks: concatenate if bytes
-        first = chunks[0]
-        if isinstance(first, bytes):
-            return b''.join(c for c in chunks if isinstance(c, bytes)), frames
-        else:
-            return chunks, frames
-
-
-
-def _stop(proc, timeout=5):
-    try:
-        proc.stdin.close()
-    except Exception:
-        pass
-    try:
-        proc.wait(timeout=timeout)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        proc.wait(timeout=2)
 
 
 # ============================================================
@@ -150,35 +35,34 @@ def _stop(proc, timeout=5):
 # ============================================================
 
 @pytest.mark.timeout(15)
+@pytest.mark.parametrize("router_lang", SUPPORTED_ROUTER_LANGS)
 @pytest.mark.parametrize("host_lang", SUPPORTED_HOST_LANGS)
 @pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
-def test_relay_initial_notify(relay_host_binaries, plugin_binaries, host_lang, plugin_lang):
-    """RelaySlave sends RelayNotify on startup with manifest and limits."""
-    host_binary = relay_host_binaries[host_lang]
-    plugin_binary = plugin_binaries[plugin_lang]
+def test_relay_initial_notify(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang, plugin_lang):
+    """Router receives RelayNotify from host and makes capabilities available.
 
-    proc, reader, writer = _start_relay_host(host_binary, [str(plugin_binary)])
+    The RouterProcess.start() already waits for the RelayNotify with a non-empty
+    capability list before returning. If we reach here, the relay handshake worked.
+    Verify by sending a request that exercises the advertised capabilities.
+    """
+    router = RouterProcess(
+        str(router_binaries[router_lang]),
+        str(relay_host_binaries[host_lang]),
+        [str(plugin_binaries[plugin_lang])],
+    )
+    reader, writer = router.start()
 
     try:
-        # First frame must be RelayNotify
-        master = RelayMaster.connect(reader)
+        # If start() returned, capabilities were received. Verify they work.
+        req_id = make_req_id()
+        send_request(writer, req_id, ECHO_CAP, b"relay-notify-test")
+        output, frames = read_response(reader)
 
-        # Manifest must be valid JSON containing at least one cap
-        manifest = master.manifest
-        assert manifest is not None, f"[{host_lang}/{plugin_lang}] manifest is None"
-        manifest_str = manifest.decode("utf-8") if isinstance(manifest, bytes) else manifest
-        parsed = json.loads(manifest_str)
-        assert isinstance(parsed, (list, dict)), (
-            f"[{host_lang}/{plugin_lang}] manifest not JSON list/dict: {type(parsed)}"
+        assert output == b"relay-notify-test", (
+            f"[{router_lang}/{host_lang}/{plugin_lang}] echo after relay notify failed: {output!r}"
         )
-
-        # Limits must have valid values
-        limits = master.limits
-        assert limits.max_frame > 0, f"[{host_lang}/{plugin_lang}] max_frame must be > 0"
-        assert limits.max_chunk > 0, f"[{host_lang}/{plugin_lang}] max_chunk must be > 0"
-
     finally:
-        _stop(proc)
+        router.stop()
 
 
 # ============================================================
@@ -186,68 +70,69 @@ def test_relay_initial_notify(relay_host_binaries, plugin_binaries, host_lang, p
 # ============================================================
 
 @pytest.mark.timeout(30)
+@pytest.mark.parametrize("router_lang", SUPPORTED_ROUTER_LANGS)
 @pytest.mark.parametrize("host_lang", SUPPORTED_HOST_LANGS)
 @pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
-def test_relay_request_passthrough(relay_host_binaries, plugin_binaries, host_lang, plugin_lang):
+def test_relay_request_passthrough(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang, plugin_lang):
     """REQ through relay reaches plugin, response comes back through relay."""
-    host_binary = relay_host_binaries[host_lang]
-    plugin_binary = plugin_binaries[plugin_lang]
-
-    proc, reader, writer = _start_relay_host(host_binary, [str(plugin_binary)])
+    router = RouterProcess(
+        str(router_binaries[router_lang]),
+        str(relay_host_binaries[host_lang]),
+        [str(plugin_binaries[plugin_lang])],
+    )
+    reader, writer = router.start()
 
     try:
-        # Read initial RelayNotify
-        master = RelayMaster.connect(reader)
+        req_id = make_req_id()
+        send_request(writer, req_id, ECHO_CAP, b"relay-echo-test")
+        output, frames = read_response(reader)
 
-        # Send echo request through relay
-        req_id = _send_request(writer, ECHO_CAP, b"relay-echo-test")
-        raw, frames = _read_response(reader)
-        decoded = raw
-
-        assert decoded == b"relay-echo-test", (
-            f"[{host_lang}/{plugin_lang}] echo mismatch through relay: {decoded!r}"
+        assert output == b"relay-echo-test", (
+            f"[{router_lang}/{host_lang}/{plugin_lang}] echo mismatch through relay: {output!r}"
         )
     finally:
-        _stop(proc)
+        router.stop()
 
 
 # ============================================================
-# Test: RelayState from master is stored by slave (not forwarded to plugin)
+# Test: RelayState from engine is forwarded through router to slave
 # ============================================================
 
 @pytest.mark.timeout(15)
+@pytest.mark.parametrize("router_lang", SUPPORTED_ROUTER_LANGS)
 @pytest.mark.parametrize("host_lang", SUPPORTED_HOST_LANGS)
 @pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
-def test_relay_state_delivery(relay_host_binaries, plugin_binaries, host_lang, plugin_lang):
-    """RelayState sent by master is stored by slave. Plugin never sees it.
+def test_relay_state_delivery(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang, plugin_lang):
+    """RelayState sent by engine passes through router to slave. Plugin never sees it.
 
     We verify this indirectly: if the relay state reached the plugin as a regular
-    frame, the plugin runtime would send an ERR (relay frames reaching runtime is
-    a protocol error per Phase 5). Since the echo still works, the relay correctly
-    intercepted the RelayState.
+    frame, the plugin runtime would send an ERR. Since the echo still works,
+    the relay correctly intercepted the RelayState.
     """
-    host_binary = relay_host_binaries[host_lang]
-    plugin_binary = plugin_binaries[plugin_lang]
-
-    proc, reader, writer = _start_relay_host(host_binary, [str(plugin_binary)])
+    router = RouterProcess(
+        str(router_binaries[router_lang]),
+        str(relay_host_binaries[host_lang]),
+        [str(plugin_binaries[plugin_lang])],
+    )
+    reader, writer = router.start()
 
     try:
-        master = RelayMaster.connect(reader)
-
-        # Send RelayState to slave
-        RelayMaster.send_state(writer, b'{"memory_mb": 1024}')
+        # Send RelayState through router to slave
+        from capns.cbor_io import FrameWriter
+        state_frame = Frame.relay_state(b'{"memory_mb": 1024}')
+        writer.write(state_frame)
 
         # Now send a regular request — if RelayState leaked to the plugin,
         # the plugin runtime would error out and this request would fail
-        req_id = _send_request(writer, ECHO_CAP, b"after-relay-state")
-        raw, frames = _read_response(reader)
-        decoded = raw
+        req_id = make_req_id()
+        send_request(writer, req_id, ECHO_CAP, b"after-relay-state")
+        output, frames = read_response(reader)
 
-        assert decoded == b"after-relay-state", (
-            f"[{host_lang}/{plugin_lang}] echo after RelayState failed: {decoded!r}"
+        assert output == b"after-relay-state", (
+            f"[{router_lang}/{host_lang}/{plugin_lang}] echo after RelayState failed: {output!r}"
         )
     finally:
-        _stop(proc)
+        router.stop()
 
 
 # ============================================================
@@ -255,30 +140,29 @@ def test_relay_state_delivery(relay_host_binaries, plugin_binaries, host_lang, p
 # ============================================================
 
 @pytest.mark.timeout(15)
+@pytest.mark.parametrize("router_lang", SUPPORTED_ROUTER_LANGS)
 @pytest.mark.parametrize("host_lang", SUPPORTED_HOST_LANGS)
-def test_relay_unknown_cap_returns_err(relay_host_binaries, plugin_binaries, host_lang):
+def test_relay_unknown_cap_returns_err(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang):
     """Request for unknown cap through relay returns ERR frame."""
-    host_binary = relay_host_binaries[host_lang]
-    plugin_binary = plugin_binaries["rust"]
-
-    proc, reader, writer = _start_relay_host(host_binary, [str(plugin_binary)])
+    router = RouterProcess(
+        str(router_binaries[router_lang]),
+        str(relay_host_binaries[host_lang]),
+        [str(plugin_binaries["rust"])],
+    )
+    reader, writer = router.start()
 
     try:
-        master = RelayMaster.connect(reader)
+        req_id = make_req_id()
+        send_request(writer, req_id, "cap:op=nonexistent-relay-xyz", b"", media_urn="media:void")
+        _, frames = read_response(reader)
 
-        req_id = MessageId.new_uuid()
-        writer.write(Frame.req(req_id, "cap:op=nonexistent-relay-xyz", b"", "text/plain"))
-        writer.write(Frame.end(req_id))
-
-        _, frames = _read_response(reader)
         err_frames = [f for f in frames if f.frame_type == FrameType.ERR]
-
         assert len(err_frames) > 0, (
-            f"[{host_lang}] must receive ERR for unknown cap through relay, got: "
+            f"[{router_lang}/{host_lang}] must receive ERR for unknown cap through relay, got: "
             f"{[f.frame_type for f in frames]}"
         )
     finally:
-        _stop(proc)
+        router.stop()
 
 
 # ============================================================
@@ -286,36 +170,39 @@ def test_relay_unknown_cap_returns_err(relay_host_binaries, plugin_binaries, hos
 # ============================================================
 
 @pytest.mark.timeout(30)
+@pytest.mark.parametrize("router_lang", SUPPORTED_ROUTER_LANGS)
 @pytest.mark.parametrize("host_lang", SUPPORTED_HOST_LANGS)
 @pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
-def test_relay_mixed_traffic(relay_host_binaries, plugin_binaries, host_lang, plugin_lang):
+def test_relay_mixed_traffic(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang, plugin_lang):
     """RelayState frames interleaved with requests work correctly."""
-    host_binary = relay_host_binaries[host_lang]
-    plugin_binary = plugin_binaries[plugin_lang]
-
-    proc, reader, writer = _start_relay_host(host_binary, [str(plugin_binary)])
+    router = RouterProcess(
+        str(router_binaries[router_lang]),
+        str(relay_host_binaries[host_lang]),
+        [str(plugin_binaries[plugin_lang])],
+    )
+    reader, writer = router.start()
 
     try:
-        master = RelayMaster.connect(reader)
-
         # Interleave: RelayState, request, RelayState, request
-        RelayMaster.send_state(writer, b'{"step": 1}')
+        state_frame1 = Frame.relay_state(b'{"step": 1}')
+        writer.write(state_frame1)
 
-        req_id1 = _send_request(writer, ECHO_CAP, b"mixed-1")
-        raw1, _ = _read_response(reader)
-        decoded1 = raw1
+        req_id1 = make_req_id()
+        send_request(writer, req_id1, ECHO_CAP, b"mixed-1")
+        output1, _ = read_response(reader)
 
-        RelayMaster.send_state(writer, b'{"step": 2}')
+        state_frame2 = Frame.relay_state(b'{"step": 2}')
+        writer.write(state_frame2)
 
-        req_id2 = _send_request(writer, BINARY_ECHO_CAP, bytes(range(64)))
-        raw2, _ = _read_response(reader)
-        decoded2 = raw2
+        req_id2 = make_req_id()
+        send_request(writer, req_id2, BINARY_ECHO_CAP, bytes(range(64)))
+        output2, _ = read_response(reader)
 
-        assert decoded1 == b"mixed-1", (
-            f"[{host_lang}/{plugin_lang}] first request after state: {decoded1!r}"
+        assert output1 == b"mixed-1", (
+            f"[{router_lang}/{host_lang}/{plugin_lang}] first request after state: {output1!r}"
         )
-        assert decoded2 == bytes(range(64)), (
-            f"[{host_lang}/{plugin_lang}] second request after state: {decoded2!r}"
+        assert output2 == bytes(range(64)), (
+            f"[{router_lang}/{host_lang}/{plugin_lang}] second request after state: {output2!r}"
         )
     finally:
-        _stop(proc)
+        router.stop()

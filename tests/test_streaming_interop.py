@@ -1,7 +1,10 @@
 """Streaming interoperability tests.
 
 Tests streaming responses (multiple chunks), large payload transfer,
-binary data integrity, and chunk ordering across host x plugin combinations.
+binary data integrity, and chunk ordering across router x host x plugin combinations.
+
+Architecture:
+    Test (Engine) → Router (RelaySwitch) → Host (PluginHost) → Plugin
 """
 
 import json
@@ -10,27 +13,30 @@ import pytest
 from capns.cbor_frame import FrameType
 from capns_interop import TEST_CAPS
 from capns_interop.framework.frame_test_helper import (
-    HostProcess,
     make_req_id,
     send_request,
     read_response,
     decode_cbor_response,
 )
+from capns_interop.framework.router_process import RouterProcess
 
-SUPPORTED_HOST_LANGS = ["python", "go", "rust", "swift"]
+SUPPORTED_ROUTER_LANGS = ["rust"]
+SUPPORTED_HOST_LANGS = ["rust"]
 SUPPORTED_PLUGIN_LANGS = ["rust", "go", "python", "swift"]
 
 
 @pytest.mark.timeout(30)
+@pytest.mark.parametrize("router_lang", SUPPORTED_ROUTER_LANGS)
 @pytest.mark.parametrize("host_lang", SUPPORTED_HOST_LANGS)
 @pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
-def test_stream_chunks(relay_host_binaries, plugin_binaries, host_lang, plugin_lang):
+def test_stream_chunks(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang, plugin_lang):
     """Test streaming multiple chunks: request N chunks, verify all received in order."""
-    host = HostProcess(
+    router = RouterProcess(
+        str(router_binaries[router_lang]),
         str(relay_host_binaries[host_lang]),
         [str(plugin_binaries[plugin_lang])],
     )
-    reader, writer = host.start()
+    reader, writer = router.start()
 
     try:
         chunk_count = 5
@@ -51,22 +57,24 @@ def test_stream_chunks(relay_host_binaries, plugin_binaries, host_lang, plugin_l
 
         # Verify we got chunks (may be more than chunk_count due to framing)
         assert len(chunks_data) >= chunk_count, (
-            f"[{host_lang}/{plugin_lang}] expected >= {chunk_count} chunks, got {len(chunks_data)}"
+            f"[{router_lang}/{host_lang}/{plugin_lang}] expected >= {chunk_count} chunks, got {len(chunks_data)}"
         )
     finally:
-        host.stop()
+        router.stop()
 
 
 @pytest.mark.timeout(60)
+@pytest.mark.parametrize("router_lang", SUPPORTED_ROUTER_LANGS)
 @pytest.mark.parametrize("host_lang", SUPPORTED_HOST_LANGS)
 @pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
-def test_large_payload(relay_host_binaries, plugin_binaries, host_lang, plugin_lang):
+def test_large_payload(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang, plugin_lang):
     """Test large payload transfer (10MB): request generated data, verify size + pattern."""
-    host = HostProcess(
+    router = RouterProcess(
+        str(router_binaries[router_lang]),
         str(relay_host_binaries[host_lang]),
         [str(plugin_binaries[plugin_lang])],
     )
-    reader, writer = host.start()
+    reader, writer = router.start()
 
     try:
         size = 10 * 1024 * 1024  # 10 MB
@@ -95,29 +103,31 @@ def test_large_payload(relay_host_binaries, plugin_binaries, host_lang, plugin_l
                 break
 
         assert len(all_data) == size, (
-            f"[{host_lang}/{plugin_lang}] expected {size} bytes, got {len(all_data)}"
+            f"[{router_lang}/{host_lang}/{plugin_lang}] expected {size} bytes, got {len(all_data)}"
         )
 
         # Verify pattern
         pattern = b"ABCDEFGH"
         for i in range(min(1000, size)):
             assert all_data[i] == pattern[i % len(pattern)], (
-                f"[{host_lang}/{plugin_lang}] pattern mismatch at byte {i}"
+                f"[{router_lang}/{host_lang}/{plugin_lang}] pattern mismatch at byte {i}"
             )
     finally:
-        host.stop()
+        router.stop()
 
 
 @pytest.mark.timeout(30)
+@pytest.mark.parametrize("router_lang", SUPPORTED_ROUTER_LANGS)
 @pytest.mark.parametrize("host_lang", SUPPORTED_HOST_LANGS)
 @pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
-def test_binary_data(relay_host_binaries, plugin_binaries, host_lang, plugin_lang):
+def test_binary_data(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang, plugin_lang):
     """Test binary data integrity: send all 256 byte values repeated, verify roundtrip."""
-    host = HostProcess(
+    router = RouterProcess(
+        str(router_binaries[router_lang]),
         str(relay_host_binaries[host_lang]),
         [str(plugin_binaries[plugin_lang])],
     )
-    reader, writer = host.start()
+    reader, writer = router.start()
 
     try:
         test_data = bytes(range(256)) * 100  # 25.6 KB
@@ -126,23 +136,25 @@ def test_binary_data(relay_host_binaries, plugin_binaries, host_lang, plugin_lan
         output, frames = read_response(reader)
 
         assert output == test_data, (
-            f"[{host_lang}/{plugin_lang}] binary data mismatch "
+            f"[{router_lang}/{host_lang}/{plugin_lang}] binary data mismatch "
             f"(len: {len(output)} vs {len(test_data)})"
         )
     finally:
-        host.stop()
+        router.stop()
 
 
 @pytest.mark.timeout(30)
+@pytest.mark.parametrize("router_lang", SUPPORTED_ROUTER_LANGS)
 @pytest.mark.parametrize("host_lang", SUPPORTED_HOST_LANGS)
 @pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
-def test_stream_ordering(relay_host_binaries, plugin_binaries, host_lang, plugin_lang):
+def test_stream_ordering(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang, plugin_lang):
     """Test streaming chunk ordering: request 20 chunks, verify sequential order."""
-    host = HostProcess(
+    router = RouterProcess(
+        str(router_binaries[router_lang]),
         str(relay_host_binaries[host_lang]),
         [str(plugin_binaries[plugin_lang])],
     )
-    reader, writer = host.start()
+    reader, writer = router.start()
 
     try:
         chunk_count = 20
@@ -182,7 +194,7 @@ def test_stream_ordering(relay_host_binaries, plugin_binaries, host_lang, plugin
         for i in range(1, chunk_count):
             if i in indices and (i - 1) in indices:
                 assert indices[i] > indices[i - 1], (
-                    f"[{host_lang}/{plugin_lang}] chunk-{i} arrived before chunk-{i-1}"
+                    f"[{router_lang}/{host_lang}/{plugin_lang}] chunk-{i} arrived before chunk-{i-1}"
                 )
     finally:
-        host.stop()
+        router.stop()

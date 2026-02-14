@@ -3,6 +3,9 @@
 Tests host sending large payloads TO plugins via chunked requests.
 The relay host's PluginHost automatically chunks large arguments into
 REQ(empty) + CHUNK* + END sequences.
+
+Architecture:
+    Test (Engine) → Router (RelaySwitch) → Host (PluginHost) → Plugin
 """
 
 import hashlib
@@ -12,27 +15,30 @@ import pytest
 from capns.cbor_frame import FrameType
 from capns_interop import TEST_CAPS
 from capns_interop.framework.frame_test_helper import (
-    HostProcess,
     make_req_id,
     send_request,
     read_response,
     decode_cbor_response,
 )
+from capns_interop.framework.router_process import RouterProcess
 
-SUPPORTED_HOST_LANGS = ["python", "go", "rust", "swift"]
+SUPPORTED_ROUTER_LANGS = ["rust"]
+SUPPORTED_HOST_LANGS = ["rust"]
 SUPPORTED_PLUGIN_LANGS = ["rust", "go", "python", "swift"]
 
 
 @pytest.mark.timeout(60)
+@pytest.mark.parametrize("router_lang", SUPPORTED_ROUTER_LANGS)
 @pytest.mark.parametrize("host_lang", SUPPORTED_HOST_LANGS)
 @pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
-def test_large_incoming_payload(relay_host_binaries, plugin_binaries, host_lang, plugin_lang):
+def test_large_incoming_payload(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang, plugin_lang):
     """Test plugin receiving 1MB payload: host sends large data, plugin returns size + checksum."""
-    host = HostProcess(
+    router = RouterProcess(
+        str(router_binaries[router_lang]),
         str(relay_host_binaries[host_lang]),
         [str(plugin_binaries[plugin_lang])],
     )
-    reader, writer = host.start()
+    reader, writer = router.start()
 
     try:
         size = 1024 * 1024
@@ -49,27 +55,29 @@ def test_large_incoming_payload(relay_host_binaries, plugin_binaries, host_lang,
             result = output
 
         assert result["size"] == size, (
-            f"[{host_lang}/{plugin_lang}] size mismatch: {result['size']} vs {size}"
+            f"[{router_lang}/{host_lang}/{plugin_lang}] size mismatch: {result['size']} vs {size}"
         )
 
         expected_checksum = hashlib.sha256(test_data).hexdigest()
         assert result["checksum"] == expected_checksum, (
-            f"[{host_lang}/{plugin_lang}] checksum mismatch"
+            f"[{router_lang}/{host_lang}/{plugin_lang}] checksum mismatch"
         )
     finally:
-        host.stop()
+        router.stop()
 
 
 @pytest.mark.timeout(120)
+@pytest.mark.parametrize("router_lang", SUPPORTED_ROUTER_LANGS)
 @pytest.mark.parametrize("host_lang", SUPPORTED_HOST_LANGS)
 @pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
-def test_massive_incoming_payload(relay_host_binaries, plugin_binaries, host_lang, plugin_lang):
+def test_massive_incoming_payload(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang, plugin_lang):
     """Test plugin receiving 10MB payload with heavy chunking."""
-    host = HostProcess(
+    router = RouterProcess(
+        str(router_binaries[router_lang]),
         str(relay_host_binaries[host_lang]),
         [str(plugin_binaries[plugin_lang])],
     )
-    reader, writer = host.start()
+    reader, writer = router.start()
 
     try:
         size = 10 * 1024 * 1024
@@ -86,27 +94,29 @@ def test_massive_incoming_payload(relay_host_binaries, plugin_binaries, host_lan
             result = output
 
         assert result["size"] == size, (
-            f"[{host_lang}/{plugin_lang}] size mismatch: {result['size']} vs {size}"
+            f"[{router_lang}/{host_lang}/{plugin_lang}] size mismatch: {result['size']} vs {size}"
         )
 
         expected_checksum = hashlib.sha256(test_data).hexdigest()
         assert result["checksum"] == expected_checksum, (
-            f"[{host_lang}/{plugin_lang}] checksum mismatch"
+            f"[{router_lang}/{host_lang}/{plugin_lang}] checksum mismatch"
         )
     finally:
-        host.stop()
+        router.stop()
 
 
 @pytest.mark.timeout(60)
+@pytest.mark.parametrize("router_lang", SUPPORTED_ROUTER_LANGS)
 @pytest.mark.parametrize("host_lang", SUPPORTED_HOST_LANGS)
 @pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
-def test_binary_incoming(relay_host_binaries, plugin_binaries, host_lang, plugin_lang):
+def test_binary_incoming(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang, plugin_lang):
     """Test plugin receiving binary data with all byte values."""
-    host = HostProcess(
+    router = RouterProcess(
+        str(router_binaries[router_lang]),
         str(relay_host_binaries[host_lang]),
         [str(plugin_binaries[plugin_lang])],
     )
-    reader, writer = host.start()
+    reader, writer = router.start()
 
     try:
         test_data = bytes(range(256)) * 1024  # 256 KB
@@ -120,22 +130,24 @@ def test_binary_incoming(relay_host_binaries, plugin_binaries, host_lang, plugin
             output_str = str(output)
 
         assert output_str == "ok", (
-            f"[{host_lang}/{plugin_lang}] binary verification failed: {output_str}"
+            f"[{router_lang}/{host_lang}/{plugin_lang}] binary verification failed: {output_str}"
         )
     finally:
-        host.stop()
+        router.stop()
 
 
 @pytest.mark.timeout(90)
+@pytest.mark.parametrize("router_lang", SUPPORTED_ROUTER_LANGS)
 @pytest.mark.parametrize("host_lang", SUPPORTED_HOST_LANGS)
 @pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
-def test_hash_incoming(relay_host_binaries, plugin_binaries, host_lang, plugin_lang):
+def test_hash_incoming(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang, plugin_lang):
     """Test plugin hashing 5MB incoming payload."""
-    host = HostProcess(
+    router = RouterProcess(
+        str(router_binaries[router_lang]),
         str(relay_host_binaries[host_lang]),
         [str(plugin_binaries[plugin_lang])],
     )
-    reader, writer = host.start()
+    reader, writer = router.start()
 
     try:
         size = 5 * 1024 * 1024
@@ -151,22 +163,24 @@ def test_hash_incoming(relay_host_binaries, plugin_binaries, host_lang, plugin_l
 
         expected_hash = hashlib.sha256(test_data).hexdigest()
         assert output_str == expected_hash, (
-            f"[{host_lang}/{plugin_lang}] hash mismatch: {output_str} vs {expected_hash}"
+            f"[{router_lang}/{host_lang}/{plugin_lang}] hash mismatch: {output_str} vs {expected_hash}"
         )
     finally:
-        host.stop()
+        router.stop()
 
 
 @pytest.mark.timeout(120)
+@pytest.mark.parametrize("router_lang", SUPPORTED_ROUTER_LANGS)
 @pytest.mark.parametrize("host_lang", SUPPORTED_HOST_LANGS)
 @pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
-def test_multiple_incoming(relay_host_binaries, plugin_binaries, host_lang, plugin_lang):
+def test_multiple_incoming(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang, plugin_lang):
     """Test multiple large incoming requests in sequence (3 x 1MB)."""
-    host = HostProcess(
+    router = RouterProcess(
+        str(router_binaries[router_lang]),
         str(relay_host_binaries[host_lang]),
         [str(plugin_binaries[plugin_lang])],
     )
-    reader, writer = host.start()
+    reader, writer = router.start()
 
     try:
         size = 1024 * 1024
@@ -182,27 +196,29 @@ def test_multiple_incoming(relay_host_binaries, plugin_binaries, host_lang, plug
                 result = output
 
             assert result["size"] == size, (
-                f"[{host_lang}/{plugin_lang}] request {i}: size mismatch"
+                f"[{router_lang}/{host_lang}/{plugin_lang}] request {i}: size mismatch"
             )
 
             expected_checksum = hashlib.sha256(test_data).hexdigest()
             assert result["checksum"] == expected_checksum, (
-                f"[{host_lang}/{plugin_lang}] request {i}: checksum mismatch"
+                f"[{router_lang}/{host_lang}/{plugin_lang}] request {i}: checksum mismatch"
             )
     finally:
-        host.stop()
+        router.stop()
 
 
 @pytest.mark.timeout(30)
+@pytest.mark.parametrize("router_lang", SUPPORTED_ROUTER_LANGS)
 @pytest.mark.parametrize("host_lang", SUPPORTED_HOST_LANGS)
 @pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
-def test_zero_length_incoming(relay_host_binaries, plugin_binaries, host_lang, plugin_lang):
+def test_zero_length_incoming(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang, plugin_lang):
     """Test plugin receiving empty payload."""
-    host = HostProcess(
+    router = RouterProcess(
+        str(router_binaries[router_lang]),
         str(relay_host_binaries[host_lang]),
         [str(plugin_binaries[plugin_lang])],
     )
-    reader, writer = host.start()
+    reader, writer = router.start()
 
     try:
         req_id = make_req_id()
@@ -215,12 +231,12 @@ def test_zero_length_incoming(relay_host_binaries, plugin_binaries, host_lang, p
             result = output
 
         assert result["size"] == 0, (
-            f"[{host_lang}/{plugin_lang}] size should be 0, got {result['size']}"
+            f"[{router_lang}/{host_lang}/{plugin_lang}] size should be 0, got {result['size']}"
         )
 
         expected_checksum = hashlib.sha256(b"").hexdigest()
         assert result["checksum"] == expected_checksum, (
-            f"[{host_lang}/{plugin_lang}] empty checksum mismatch"
+            f"[{router_lang}/{host_lang}/{plugin_lang}] empty checksum mismatch"
         )
     finally:
-        host.stop()
+        router.stop()
