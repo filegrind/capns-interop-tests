@@ -18,7 +18,7 @@ These MUST match exactly across all plugin implementations (Rust, Python, Go, Sw
 ## Capability Definitions
 
 ### echo - Customer Service Message Echo
-- Cap: `cap:in="media:customer-message;textable;form=scalar";op=echo;out="media:customer-message;textable;form=scalar"`
+- Cap: `cap:in=media:;out=media:`
 - Business: Echo back a customer service message
 - Input: Customer's text message
 - Output: Same message (echo service test)

@@ -49,7 +49,7 @@ impl TestRouter {
         if let Ok(parsed) = capns::CapUrn::from_string(cap_urn) {
             return parsed.get_tag("op").map(|s| s.to_string());
         }
-        // Simple extraction for wildcard URNs like "cap:in=*;op=echo;out=*"
+        // Simple extraction for URNs like "cap:in=media:;out=media:"
         for part in cap_urn.split(';') {
             let part = part.trim();
             if let Some(rest) = part.strip_prefix("op=") {

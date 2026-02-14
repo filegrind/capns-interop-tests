@@ -507,7 +507,7 @@ func handlePeerEcho(frames <-chan cbor.Frame, emitter capns.StreamEmitter, peer 
 		capns.NewCapArgumentValue("media:customer-message;textable;form=scalar", payloadBytes),
 	}
 
-	peerFrames, err := peer.Invoke(`cap:in=*;op=echo;out=*`, args)
+	peerFrames, err := peer.Invoke("cap:in=media:;out=media:", args)
 	if err != nil {
 		return fmt.Errorf("peer invoke failed: %w", err)
 	}
@@ -733,7 +733,7 @@ func main() {
 	}
 
 	// Register handlers with wildcard URNs (matching is done by PluginRuntime.FindHandler)
-	runtime.Register(`cap:in=*;op=echo;out=*`, handleEcho)
+	runtime.Register("cap:in=media:;out=media:", handleEcho)
 	runtime.Register(`cap:in=*;op=double;out=*`, handleDouble)
 	runtime.Register(`cap:in=*;op=stream_chunks;out=*`, handleStreamChunks)
 	runtime.Register(`cap:in=*;op=binary_echo;out=*`, handleBinaryEcho)

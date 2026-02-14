@@ -32,7 +32,7 @@ from capns.cbor_io import FrameReader, FrameWriter
 from capns.plugin_relay import RelayMaster
 
 # E-commerce semantic cap URNs matching test plugin
-ECHO_CAP = 'cap:in="media:customer-message;textable;form=scalar";op=echo;out="media:customer-message;textable;form=scalar"'
+ECHO_CAP = 'cap:in=media:;out=media:'
 BINARY_ECHO_CAP = 'cap:in="media:product-image;bytes";op=binary_echo;out="media:product-image;bytes"'
 
 SUPPORTED_HOST_LANGS = ["python", "go", "rust", "swift"]

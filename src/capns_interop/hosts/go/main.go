@@ -181,7 +181,7 @@ func (h *goTestHost) handleSpawn(cmd map[string]interface{}) (map[string]interfa
 	}
 
 	// Register echo and double handlers for bidirectional tests
-	h.host.RegisterCapability("cap:in=*;op=echo;out=*", func(payload []byte) ([]byte, error) {
+	h.host.RegisterCapability("cap:in=media:;out=media:", func(payload []byte) ([]byte, error) {
 		return payload, nil
 	})
 

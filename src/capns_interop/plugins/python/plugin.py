@@ -448,7 +448,7 @@ def handle_peer_echo(frames: queue.Queue, emitter, peer):
     payload_bytes = cbor_value_to_bytes(payload)
 
     # Call host's echo capability with semantic URN
-    peer_frames = peer.invoke("cap:in=*;op=echo;out=*", [CapArgumentValue("media:customer-message;textable;form=scalar", payload_bytes)])
+    peer_frames = peer.invoke("cap:in=media:;out=media:", [CapArgumentValue("media:customer-message;textable;form=scalar", payload_bytes)])
 
     # Collect and decode peer response
     cbor_value = collect_peer_response(peer_frames)
@@ -599,7 +599,7 @@ def main():
     runtime = PluginRuntime.with_manifest(manifest)
 
     # Register all handlers
-    runtime.register_raw("cap:in=*;op=echo;out=*", handle_echo)
+    runtime.register_raw("cap:in=media:;out=media:", handle_echo)
     runtime.register_raw("cap:in=*;op=double;out=*", handle_double)
     runtime.register_raw("cap:in=*;op=stream_chunks;out=*", handle_stream_chunks)
     runtime.register_raw("cap:in=*;op=binary_echo;out=*", handle_binary_echo)

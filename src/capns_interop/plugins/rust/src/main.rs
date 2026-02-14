@@ -395,7 +395,7 @@ fn main() -> Result<(), RuntimeError> {
     eprintln!("[PLUGIN MAIN] Created runtime");
 
     // Register handlers for all test capabilities
-    runtime.register_raw(r#"cap:in="media:customer-message;textable;form=scalar";op=echo;out="media:customer-message;textable;form=scalar""#, handle_echo);
+    runtime.register_raw("cap:in=media:;out=media:", handle_echo);
     runtime.register_raw(r#"cap:in="media:order-value;json;textable;form=map";op=double;out="media:loyalty-points;integer;textable;numeric;form=scalar""#, handle_double);
     runtime.register_raw(r#"cap:in="media:update-count;json;textable;form=map";op=stream_chunks;out="media:order-updates;textable""#, handle_stream_chunks);
     runtime.register_raw(r#"cap:in="media:product-image;bytes";op=binary_echo;out="media:product-image;bytes""#, handle_binary_echo);
@@ -721,8 +721,8 @@ fn handle_peer_echo(
 
     // Call host's echo capability
     let args = vec![CapArgumentValue::new("media:customer-message;textable;form=scalar", payload)];
-    eprintln!("[peer_echo] Calling peer.invoke with cap:in=\"media:customer-message;textable;form=scalar\";op=echo;out=\"media:customer-message;textable;form=scalar\"");
-    let peer_frames = peer.invoke(r#"cap:in="media:customer-message;textable;form=scalar";op=echo;out="media:customer-message;textable;form=scalar""#, &args)?;
+    eprintln!("[peer_echo] Calling peer.invoke with cap:in=media:;out=media:");
+    let peer_frames = peer.invoke("cap:in=media:;out=media:", &args)?;
     eprintln!("[peer_echo] peer.invoke returned channel, waiting for response");
 
     // Collect and decode peer response

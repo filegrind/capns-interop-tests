@@ -29,7 +29,7 @@ from capns.cbor_frame import Frame, FrameType, MessageId
 from capns.cbor_io import FrameReader, FrameWriter
 
 # E-commerce semantic cap URNs matching the test plugin's registered capabilities
-ECHO_CAP = 'cap:in="media:customer-message;textable;form=scalar";op=echo;out="media:customer-message;textable;form=scalar"'
+ECHO_CAP = 'cap:in=media:;out=media:'
 BINARY_ECHO_CAP = 'cap:in="media:product-image;bytes";op=binary_echo;out="media:product-image;bytes"'
 DOUBLE_CAP = 'cap:in="media:order-value;json;textable;form=map";op=double;out="media:loyalty-points;integer;textable;numeric;form=scalar"'
 

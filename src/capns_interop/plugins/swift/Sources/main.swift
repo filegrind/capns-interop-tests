@@ -9,7 +9,7 @@ func buildManifest() -> [String: Any] {
     // E-commerce semantic media URNs - must match across all plugin languages
     let caps: [[String: Any]] = [
         [
-            "urn": "cap:in=\"media:customer-message;textable;form=scalar\";op=echo;out=\"media:customer-message;textable;form=scalar\"",
+            "urn": "cap:in=media:;out=media:",
             "title": "Echo",
             "command": "echo"
         ],
@@ -411,7 +411,7 @@ func handlePeerEcho(stream: AsyncStream<CborFrame>, emitter: CborStreamEmitter, 
     let payload = try cborValueToData(cborValue)
     // Call host's echo capability with semantic URN
     let arg = CborCapArgumentValue(mediaUrn: "media:customer-message;textable;form=scalar", value: payload)
-    let peerFrames = try peer.invoke(capUrn: "cap:in=*;op=echo;out=*", arguments: [arg])
+    let peerFrames = try peer.invoke(capUrn: "cap:in=media:;out=media:", arguments: [arg])
 
     // Collect and decode peer response
     let peerResponse = try await collectPeerResponse(from: peerFrames)
@@ -572,7 +572,7 @@ let manifestJSON = buildManifestJSON()
 let runtime = try! CborPluginRuntime(manifestJSON: manifestJSON)
 
 // Register all handlers with exact e-commerce semantic URNs using registerRaw
-runtime.registerRaw(capUrn: "cap:in=\"media:customer-message;textable;form=scalar\";op=echo;out=\"media:customer-message;textable;form=scalar\"", handler: handleEcho)
+runtime.registerRaw(capUrn: "cap:in=media:;out=media:", handler: handleEcho)
 runtime.registerRaw(capUrn: "cap:in=\"media:order-value;json;textable;form=map\";op=double;out=\"media:loyalty-points;integer;textable;numeric;form=scalar\"", handler: handleDouble)
 runtime.registerRaw(capUrn: "cap:in=\"media:update-count;json;textable;form=map\";op=stream_chunks;out=\"media:order-updates;textable\"", handler: handleStreamChunks)
 runtime.registerRaw(capUrn: "cap:in=\"media:product-image;bytes\";op=binary_echo;out=\"media:product-image;bytes\"", handler: handleBinaryEcho)
