@@ -9,7 +9,7 @@ func buildManifest() -> [String: Any] {
     // E-commerce semantic media URNs - must match across all plugin languages
     let caps: [[String: Any]] = [
         [
-            "urn": "cap:in=media:;out=media:",
+            "urn": "cap:in=\"media:bytes\";op=echo;out=\"media:bytes\"",
             "title": "Echo",
             "command": "echo"
         ],
@@ -572,7 +572,7 @@ let manifestJSON = buildManifestJSON()
 let runtime = try! CborPluginRuntime(manifestJSON: manifestJSON)
 
 // Register all handlers with exact e-commerce semantic URNs using registerRaw
-runtime.registerRaw(capUrn: "cap:in=media:;out=media:", handler: handleEcho)
+runtime.registerRaw(capUrn: "cap:in=\"media:bytes\";op=echo;out=\"media:bytes\"", handler: handleEcho)
 runtime.registerRaw(capUrn: "cap:in=\"media:order-value;json;textable;form=map\";op=double;out=\"media:loyalty-points;integer;textable;numeric;form=scalar\"", handler: handleDouble)
 runtime.registerRaw(capUrn: "cap:in=\"media:update-count;json;textable;form=map\";op=stream_chunks;out=\"media:order-updates;textable\"", handler: handleStreamChunks)
 runtime.registerRaw(capUrn: "cap:in=\"media:product-image;bytes\";op=binary_echo;out=\"media:product-image;bytes\"", handler: handleBinaryEcho)

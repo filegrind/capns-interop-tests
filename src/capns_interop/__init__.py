@@ -5,7 +5,7 @@ __version__ = "0.1.0"
 # E-commerce test capabilities implemented by all test plugins
 # Each cap represents a business operation in an imaginary order processing system
 TEST_CAPS = {
-    "echo": 'cap:in=media:;out=media:',
+    "echo": 'cap:in="media:bytes";op=echo;out="media:bytes"',
     "double": 'cap:in="media:order-value;json;textable;form=map";op=double;out="media:loyalty-points;integer;textable;numeric;form=scalar"',
     "stream_chunks": 'cap:in="media:update-count;json;textable;form=map";op=stream_chunks;out="media:order-updates;textable"',
     "binary_echo": 'cap:in="media:product-image;bytes";op=binary_echo;out="media:product-image;bytes"',

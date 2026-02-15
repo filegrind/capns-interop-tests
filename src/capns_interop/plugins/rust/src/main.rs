@@ -1,6 +1,6 @@
 use capns::{
     ArgSource, Cap, CapArg, CapManifest, CapOutput, CapUrnBuilder,
-    InputPackage, OutputStream, PeerInvoker, PluginRuntime, RuntimeError, CapUrn,
+    InputPackage, OutputStream, PeerInvoker, PluginRuntime, RuntimeError,
 };
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -35,7 +35,12 @@ fn collect_binary(input: InputPackage) -> Result<Vec<u8>, RuntimeError> {
 fn build_manifest() -> CapManifest {
     let caps = vec![
         Cap::new(
-            CapUrn::from_string(capns::CAP_IDENTITY).unwrap(),
+            CapUrnBuilder::new()
+                .tag("op", "echo")
+                .in_spec("media:bytes")
+                .out_spec("media:bytes")
+                .build()
+                .unwrap(),
             "Echo".to_string(),
             "echo".to_string(),
         ),
@@ -238,7 +243,7 @@ fn main() -> Result<(), RuntimeError> {
     eprintln!("[PLUGIN MAIN] Created runtime");
 
     // Register handlers for all test capabilities
-    runtime.register_raw("cap:in=media:;out=media:", handle_echo);
+    runtime.register_raw(r#"cap:in="media:bytes";op=echo;out="media:bytes""#, handle_echo);
     runtime.register_raw(r#"cap:in="media:order-value;json;textable;form=map";op=double;out="media:loyalty-points;integer;textable;numeric;form=scalar""#, handle_double);
     runtime.register_raw(r#"cap:in="media:update-count;json;textable;form=map";op=stream_chunks;out="media:order-updates;textable""#, handle_stream_chunks);
     runtime.register_raw(r#"cap:in="media:product-image;bytes";op=binary_echo;out="media:product-image;bytes""#, handle_binary_echo);

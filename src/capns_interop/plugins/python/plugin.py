@@ -198,8 +198,8 @@ def build_manifest() -> CapManifest:
         Cap(
             urn=CapUrnBuilder()
                 .tag("op", "echo")
-                .in_spec("media:customer-message;textable;form=scalar")
-                .out_spec("media:customer-message;textable;form=scalar")
+                .in_spec("media:bytes")
+                .out_spec("media:bytes")
                 .build(),
             title="Echo",
             command="echo",
@@ -599,7 +599,7 @@ def main():
     runtime = PluginRuntime.with_manifest(manifest)
 
     # Register all handlers
-    runtime.register_raw("cap:in=media:;out=media:", handle_echo)
+    runtime.register_raw('cap:in="media:bytes";op=echo;out="media:bytes"', handle_echo)
     runtime.register_raw("cap:in=*;op=double;out=*", handle_double)
     runtime.register_raw("cap:in=*;op=stream_chunks;out=*", handle_stream_chunks)
     runtime.register_raw("cap:in=*;op=binary_echo;out=*", handle_binary_echo)

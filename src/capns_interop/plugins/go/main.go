@@ -169,8 +169,8 @@ func buildManifest() *capns.CapManifest {
 		*capns.NewCap(
 			mustBuild(capns.NewCapUrnBuilder().
 				Tag("op", "echo").
-				InSpec("media:customer-message;textable;form=scalar").
-				OutSpec("media:customer-message;textable;form=scalar")),
+				InSpec("media:bytes").
+				OutSpec("media:bytes")),
 			"Echo", "echo",
 		),
 		*capns.NewCap(
@@ -733,7 +733,7 @@ func main() {
 	}
 
 	// Register handlers with wildcard URNs (matching is done by PluginRuntime.FindHandler)
-	runtime.Register("cap:in=media:;out=media:", handleEcho)
+	runtime.Register(`cap:in="media:bytes";op=echo;out="media:bytes"`, handleEcho)
 	runtime.Register(`cap:in=*;op=double;out=*`, handleDouble)
 	runtime.Register(`cap:in=*;op=stream_chunks;out=*`, handleStreamChunks)
 	runtime.Register(`cap:in=*;op=binary_echo;out=*`, handleBinaryEcho)

@@ -86,6 +86,23 @@ fn main() {
 
     eprintln!("[Router] RelaySwitch initialized, connected to {} relay host(s)", args.socket_paths.len());
 
+    // Send initial RelayNotify to engine with aggregate capabilities.
+    // The full capabilities from hosts were consumed during identity verification
+    // in RelaySwitch::new(), so the engine hasn't seen them yet.
+    {
+        let stdout = std::io::stdout();
+        let mut init_writer = FrameWriter::new(std::io::BufWriter::new(stdout.lock()));
+        let notify = capns::bifaci::frame::Frame::relay_notify(
+            switch.capabilities(),
+            switch.limits(),
+        );
+        init_writer.write(&notify).unwrap_or_else(|e| {
+            eprintln!("Failed to write initial RelayNotify to engine: {}", e);
+            std::process::exit(1);
+        });
+        eprintln!("[Router] Sent initial RelayNotify to engine ({} bytes)", switch.capabilities().len());
+    }
+
     // Router is a pure multiplexer - two independent loops:
     //   - Thread 1: stdin → channel (continuously read stdin, send frames to channel)
     //   - Thread 2 (main): channel + RelaySwitch → stdout (multiplex stdin frames and master frames)
