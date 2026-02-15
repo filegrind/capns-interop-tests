@@ -4,10 +4,10 @@
 //! via PluginHostRuntime with a TestRouter, and writes JSON-line responses to stdout.
 
 use base64::Engine;
-use capns::plugin_host_runtime::{AsyncHostError, PluginHostRuntime, PluginResponse, ResponseChunk};
+use capns::bifaci::host_runtime::{AsyncHostError, PluginHostRuntime, PluginResponse, ResponseChunk};
 use capns::CapArgumentValue;
-use capns::cap_router::{ArcCapRouter, CapRouter, PeerRequestHandle};
-use capns::cbor_frame::{Frame, FrameType};
+use capns::bifaci::router::{ArcCapRouter, CapRouter, PeerRequestHandle};
+use capns::bifaci::frame::{Frame, FrameType};
 use crossbeam_channel::{bounded, Receiver, Sender};
 use serde_json::{json, Value};
 use std::collections::HashMap;

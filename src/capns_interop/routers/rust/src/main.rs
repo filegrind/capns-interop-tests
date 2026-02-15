@@ -8,9 +8,9 @@
 ///   capns-interop-router-rust --connect <socket-path> [--connect <another-socket>]
 use std::os::unix::net::UnixStream;
 
-use capns::cbor_frame::SeqAssigner;
-use capns::cbor_io::{FrameReader, FrameWriter};
-use capns::relay_switch::RelaySwitch;
+use capns::bifaci::frame::SeqAssigner;
+use capns::bifaci::io::{FrameReader, FrameWriter};
+use capns::bifaci::relay_switch::RelaySwitch;
 
 #[derive(Debug)]
 struct Args {
@@ -144,12 +144,12 @@ fn main() {
             Ok(frame) => {
                 eprintln!("[Router/main] Sending stdin frame to master: {:?} (id={:?})", frame.frame_type, frame.id);
                 let frame_id = frame.id.clone();
-                let is_req = frame.frame_type == capns::cbor_frame::FrameType::Req;
+                let is_req = frame.frame_type == capns::bifaci::frame::FrameType::Req;
                 if let Err(e) = switch.send_to_master(frame) {
                     eprintln!("[Router/main] Error sending to master: {}", e);
                     // On REQ failure, send ERR back to engine so it doesn't hang
                     if is_req {
-                        let err_frame = capns::cbor_frame::Frame::err(frame_id, "NO_HANDLER", &e.to_string());
+                        let err_frame = capns::bifaci::frame::Frame::err(frame_id, "NO_HANDLER", &e.to_string());
                         if let Err(write_err) = writer.write(&err_frame) {
                             eprintln!("[Router/main] Failed to write ERR frame: {}", write_err);
                         }
@@ -176,7 +176,7 @@ fn main() {
                     eprintln!("[Router/main] Error writing to stdout: {}", e);
                     break;
                 }
-                if matches!(frame.frame_type, capns::cbor_frame::FrameType::End | capns::cbor_frame::FrameType::Err) {
+                if matches!(frame.frame_type, capns::bifaci::frame::FrameType::End | capns::bifaci::frame::FrameType::Err) {
                     stdout_seq.remove(&frame.id);
                 }
             }

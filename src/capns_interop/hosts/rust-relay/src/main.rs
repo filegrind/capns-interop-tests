@@ -18,10 +18,10 @@ use std::os::unix::io::{FromRawFd, IntoRawFd};
 use std::os::unix::net::UnixListener;
 use std::process::Command;
 
-use capns::plugin_host_runtime::PluginHostRuntime;
-use capns::cbor_frame::Limits;
-use capns::cbor_io::{FrameReader, FrameWriter};
-use capns::plugin_relay::RelaySlave;
+use capns::bifaci::host_runtime::PluginHostRuntime;
+use capns::bifaci::frame::Limits;
+use capns::bifaci::io::{FrameReader, FrameWriter};
+use capns::bifaci::relay::RelaySlave;
 
 #[derive(Debug)]
 struct Args {
@@ -190,20 +190,19 @@ async fn run_with_relay(mut host: PluginHostRuntime) {
         let socket_reader = FrameReader::new(std::io::BufReader::new(stdin_file));
         let socket_writer = FrameWriter::new(std::io::BufWriter::new(stdout_file));
 
-        // Send initial empty RelayNotify (plugins haven't connected yet)
-        // PluginHostRuntime will send updated RelayNotify after plugins connect
-        // RelayNotify contains just an array of capability URN strings
-        let empty_caps: Vec<String> = Vec::new();
-        let empty_caps_json = serde_json::to_vec(&empty_caps)
-            .expect("Failed to serialize empty caps array");
+        // Send initial RelayNotify with CAP_IDENTITY (always available).
+        // PluginHostRuntime will send updated RelayNotify after plugins connect.
+        let initial_caps = vec![capns::standard::caps::CAP_IDENTITY.to_string()];
+        let initial_caps_json = serde_json::to_vec(&initial_caps)
+            .expect("Failed to serialize initial caps array");
         eprintln!("[RelayHost] Initial RelayNotify payload: {} bytes: {:?}",
-                  empty_caps_json.len(),
-                  std::str::from_utf8(&empty_caps_json).unwrap_or("<invalid UTF-8>"));
+                  initial_caps_json.len(),
+                  std::str::from_utf8(&initial_caps_json).unwrap_or("<invalid UTF-8>"));
         let limits = Limits::default();
         let result = slave.run(
             socket_reader,
             socket_writer,
-            Some((&empty_caps_json, &limits)),
+            Some((&initial_caps_json, &limits)),
         );
 
         if let Err(e) = result {
@@ -265,19 +264,19 @@ async fn run_with_relay_socket(mut host: PluginHostRuntime, socket_path: &str) {
         let socket_reader = FrameReader::new(std::io::BufReader::new(socket_read));
         let socket_writer = FrameWriter::new(std::io::BufWriter::new(socket));
 
-        // Send initial empty RelayNotify (plugins haven't connected yet)
-        // PluginHostRuntime will send updated RelayNotify after plugins connect
-        let empty_caps: Vec<String> = Vec::new();
-        let empty_caps_json = serde_json::to_vec(&empty_caps)
-            .expect("Failed to serialize empty caps array");
+        // Send initial RelayNotify with CAP_IDENTITY (always available).
+        // PluginHostRuntime will send updated RelayNotify after plugins connect.
+        let initial_caps = vec![capns::standard::caps::CAP_IDENTITY.to_string()];
+        let initial_caps_json = serde_json::to_vec(&initial_caps)
+            .expect("Failed to serialize initial caps array");
         eprintln!("[RelayHost] Initial RelayNotify payload: {} bytes: {:?}",
-                  empty_caps_json.len(),
-                  std::str::from_utf8(&empty_caps_json).unwrap_or("<invalid UTF-8>"));
+                  initial_caps_json.len(),
+                  std::str::from_utf8(&initial_caps_json).unwrap_or("<invalid UTF-8>"));
         let limits = Limits::default();
         let result = slave.run(
             socket_reader,
             socket_writer,
-            Some((&empty_caps_json, &limits)),
+            Some((&initial_caps_json, &limits)),
         );
 
         if let Err(e) = result {
