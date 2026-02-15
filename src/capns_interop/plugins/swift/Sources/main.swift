@@ -13,6 +13,11 @@ func buildManifest() -> [String: Any] {
     // E-commerce semantic media URNs - must match across all plugin languages
     let caps: [[String: Any]] = [
         [
+            "urn": "cap:",
+            "title": "Identity",
+            "command": "identity"
+        ],
+        [
             "urn": "cap:in=\"media:bytes\";op=echo;out=\"media:bytes\"",
             "title": "Echo",
             "command": "echo"
