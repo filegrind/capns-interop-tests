@@ -13,7 +13,7 @@ let package = Package(
             name: "capns-interop-host-swift",
             dependencies: [
                 .product(name: "CapNs", package: "capns-objc"),
-                .product(name: "CapNsCbor", package: "capns-objc"),
+                .product(name: "Bifaci", package: "capns-objc"),
                 .product(name: "SwiftCBOR", package: "SwiftCBOR"),
             ],
             path: "Sources"

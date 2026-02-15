@@ -1,500 +1,239 @@
 /// Swift test host binary for cross-language matrix tests.
 ///
 /// Reads JSON-line commands from stdin, manages a plugin subprocess
-/// via CborPluginHost with a TestRouter, and writes JSON-line responses to stdout.
+/// via direct CBOR frame communication, and writes JSON-line responses to stdout.
 
 import Foundation
 import CapNs
-import CapNsCbor
+import Bifaci
 @preconcurrency import SwiftCBOR
 
-// MARK: - TestRouter (CborCapRouter implementation)
+// MARK: - Single Plugin Wrapper
 
-/// A test router that dispatches peer invoke requests to built-in echo/double handlers.
-final class TestRouter: CborCapRouter, @unchecked Sendable {
-    func beginRequest(capUrn: String, reqId: Data) throws -> CborPeerRequestHandle {
-        guard let op = extractOp(from: capUrn) else {
-            throw CborPluginHostError.peerInvokeNotSupported(capUrn)
-        }
+/// Wraps a single plugin subprocess with CBOR frame communication.
+final class PluginWrapper {
+    private let process: Process
+    private let reader: FrameReader
+    private let writer: FrameWriter
+    private let stdinPipe: Pipe
+    private let stdoutPipe: Pipe
 
-        let handler: (Data) -> Data
-        switch op {
-        case "echo":
-            handler = { payload in payload }
-        case "double":
-            handler = { payload in
-                if let json = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
-                   let value = json["value"] as? NSNumber {
-                    let doubled = value.intValue * 2
-                    // NSJSONSerialization rejects bare scalars — encode directly as JSON number bytes
-                    return Data("\(doubled)".utf8)
-                }
-                return Data()
-            }
-        default:
-            throw CborPluginHostError.peerInvokeNotSupported(capUrn)
-        }
-
-        return TestRequestHandle(handler: handler)
-    }
-
-    private func extractOp(from capUrn: String) -> String? {
-        // Try proper parsing first
-        if let parsed = try? CSCapUrn.fromString(capUrn) {
-            return parsed.getTag("op")
-        }
-        // Simple extraction for wildcard URNs
-        for part in capUrn.split(separator: ";") {
-            let trimmed = part.trimmingCharacters(in: .whitespaces)
-            if trimmed.hasPrefix("op=") {
-                return String(trimmed.dropFirst(3))
-            }
-        }
-        return nil
-    }
-}
-
-// MARK: - TestRequestHandle (CborPeerRequestHandle implementation)
-
-/// Accumulates streamed arguments, dispatches handler, sends response via AsyncStream.
-final class TestRequestHandle: CborPeerRequestHandle, @unchecked Sendable {
-    private let handler: (Data) -> Data
-    private var streams: [(String, Data)] = [] // (stream_id, accumulated_data)
-    private let lock = NSLock()
-    private var continuation: AsyncStream<Result<CborResponseChunk, CborPluginHostError>>.Continuation?
-    private let _responseStream: AsyncStream<Result<CborResponseChunk, CborPluginHostError>>
-
-    init(handler: @escaping (Data) -> Data) {
-        self.handler = handler
-        var cont: AsyncStream<Result<CborResponseChunk, CborPluginHostError>>.Continuation!
-        self._responseStream = AsyncStream { c in cont = c }
-        self.continuation = cont
-    }
-
-    func forwardFrame(_ frame: CborFrame) {
-        switch frame.frameType {
-        case .streamStart:
-            let streamId = frame.streamId ?? ""
-            lock.lock()
-            streams.append((streamId, Data()))
-            lock.unlock()
-
-        case .chunk:
-            let streamId = frame.streamId ?? ""
-            let payload = frame.payload ?? Data()
-            lock.lock()
-            if let index = streams.firstIndex(where: { $0.0 == streamId }) {
-                streams[index].1.append(payload)
-            }
-            lock.unlock()
-
-        case .streamEnd:
-            // No-op — stream tracking only
-            break
-
-        case .end:
-            // Concatenate all stream data
-            lock.lock()
-            var payload = Data()
-            for (_, data) in streams {
-                payload.append(data)
-            }
-            lock.unlock()
-
-            // Execute handler
-            let result = handler(payload)
-
-            // Send single response chunk
-            continuation?.yield(.success(CborResponseChunk(
-                payload: result,
-                seq: 0,
-                offset: nil,
-                len: nil,
-                isEof: true
-            )))
-            continuation?.finish()
-
-        default:
-            break
-        }
-    }
-
-    func responseStream() -> AsyncStream<Result<CborResponseChunk, CborPluginHostError>> {
-        return _responseStream
-    }
-}
-
-// MARK: - SwiftTestHost
-
-struct SwiftTestHost {
-    var pluginHost: CborPluginHost?
-    var pluginProcess: Process?
-
-    mutating func handleSpawn(_ cmd: [String: Any]) -> [String: Any] {
-        guard let pluginPath = cmd["plugin_path"] as? String else {
-            return ["ok": false, "error": "Missing plugin_path"]
-        }
-
+    init(pluginPath: String) throws {
         let process = Process()
-
-        if pluginPath.hasSuffix(".py") {
-            let pythonExe = ProcessInfo.processInfo.environment["PYTHON_EXECUTABLE"] ?? "python3"
-            process.executableURL = URL(fileURLWithPath: pythonExe)
-            process.arguments = [pluginPath]
-        } else {
-            process.executableURL = URL(fileURLWithPath: pluginPath)
-        }
-
         let stdinPipe = Pipe()
         let stdoutPipe = Pipe()
-        let stderrPipe = Pipe()
+
+        if pluginPath.hasSuffix(".py") {
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            process.arguments = ["python3", pluginPath]
+        } else if pluginPath.contains("/") {
+            process.executableURL = URL(fileURLWithPath: pluginPath)
+        } else {
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            process.arguments = [pluginPath]
+        }
 
         process.standardInput = stdinPipe
         process.standardOutput = stdoutPipe
-        process.standardError = stderrPipe
+        process.standardError = FileHandle.standardError
 
-        // Drain stderr in background
-        DispatchQueue.global().async {
-            let data = stderrPipe.fileHandleForReading.readDataToEndOfFile()
-            if !data.isEmpty {
-                FileHandle.standardError.write(data)
-            }
+        let writer = FrameWriter(handle: stdinPipe.fileHandleForWriting)
+        let reader = FrameReader(handle: stdoutPipe.fileHandleForReading)
+
+        self.process = process
+        self.stdinPipe = stdinPipe
+        self.stdoutPipe = stdoutPipe
+        self.writer = writer
+        self.reader = reader
+
+        try process.run()
+
+        // Perform handshake
+        let ourLimits = Limits()
+        let helloFrame = Frame.hello(limits: ourLimits)
+        try writer.write(helloFrame)
+
+        guard let theirHello = try reader.read() else {
+            throw PluginHostError.handshakeFailed("Plugin closed before HELLO")
+        }
+        guard theirHello.frameType == .hello else {
+            throw PluginHostError.handshakeFailed("Expected HELLO, got \(theirHello.frameType)")
         }
 
-        do {
-            try process.run()
-        } catch {
-            return ["ok": false, "error": "Failed to spawn: \(error)"]
-        }
+        // Negotiate limits
+        let theirMaxFrame = theirHello.helloMaxFrame ?? DEFAULT_MAX_FRAME
+        let theirMaxChunk = theirHello.helloMaxChunk ?? DEFAULT_MAX_CHUNK
+        let theirMaxReorder = theirHello.helloMaxReorderBuffer ?? DEFAULT_MAX_REORDER_BUFFER
 
-        let router = TestRouter()
+        let negotiated = Limits(
+            maxFrame: min(ourLimits.maxFrame, theirMaxFrame),
+            maxChunk: min(ourLimits.maxChunk, theirMaxChunk),
+            maxReorderBuffer: min(ourLimits.maxReorderBuffer, theirMaxReorder)
+        )
 
-        do {
-            let host = try CborPluginHost(
-                stdinHandle: stdinPipe.fileHandleForWriting,
-                stdoutHandle: stdoutPipe.fileHandleForReading,
-                router: router
-            )
-
-            let manifest = host.pluginManifest ?? Data()
-            let manifestB64 = manifest.base64EncodedString()
-
-            self.pluginHost = host
-            self.pluginProcess = process
-
-            return ["ok": true, "manifest_b64": manifestB64]
-        } catch {
-            process.terminate()
-            return ["ok": false, "error": "Handshake failed: \(error)"]
-        }
+        writer.setLimits(negotiated)
+        reader.setLimits(negotiated)
     }
 
-    func handleCall(_ cmd: [String: Any]) async -> [String: Any] {
-        guard let host = pluginHost else {
-            return ["ok": false, "error": "No host"]
-        }
+    func executeCap(capUrn: String, payload: Data, contentType: String = "application/json") throws -> Data {
+        // Generate MessageId from UUID
+        let reqId = MessageId.newUUID()
 
-        let capUrn = cmd["cap_urn"] as? String ?? ""
+        // Send REQ frame
+        let reqFrame = Frame.req(
+            id: reqId,
+            capUrn: capUrn,
+            payload: payload,
+            contentType: contentType
+        )
+        try writer.write(reqFrame)
 
-        guard let argsRaw = cmd["arguments"] as? [[String: Any]] else {
-            return ["ok": false, "error": "Missing 'arguments' array"]
-        }
+        // Send END frame
+        let endFrame = Frame.end(id: reqId, finalPayload: nil)
+        try writer.write(endFrame)
 
-        var arguments: [(mediaUrn: String, value: Data)] = []
-        for argMap in argsRaw {
-            guard let mediaUrn = argMap["media_urn"] as? String else {
-                return ["ok": false, "error": "Argument missing 'media_urn'"]
+        // Read response frames until END or ERR
+        var result = Data()
+
+        while true {
+            guard let frame = try reader.read() else {
+                throw PluginHostError.processExited
             }
-            let valueB64 = argMap["value_b64"] as? String ?? ""
-            guard let value = Data(base64Encoded: valueB64) else {
-                return ["ok": false, "error": "Invalid base64 in argument"]
+
+            // Only process frames for our request ID
+            guard frame.id == reqId else {
+                continue
             }
-            arguments.append((mediaUrn: mediaUrn, value: value))
-        }
 
-        let start = DispatchTime.now()
-
-        do {
-            let response = try await host.callWithArguments(capUrn: capUrn, arguments: arguments)
-            let durationNs = DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds
-
-            // Collect raw data from response
-            let rawData: Data
-            switch response {
-            case .single(let data):
-                rawData = data
-            case .streaming(let chunks):
-                var allData = Data()
-                for chunk in chunks {
-                    allData.append(chunk.payload)
+            switch frame.frameType {
+            case .chunk:
+                if let chunkPayload = frame.payload {
+                    result.append(chunkPayload)
                 }
-                rawData = allData
-            }
 
-            // Decode CBOR values — matches Rust host's decode_cbor_values() exactly
-            if let decoded = decodeCborValues(rawData) {
-                if decoded.count == 1 {
-                    return [
-                        "ok": true,
-                        "payload_b64": decoded[0].base64EncodedString(),
-                        "is_streaming": false,
-                        "duration_ns": durationNs,
-                    ]
-                } else if decoded.count > 1 {
-                    let chunksB64 = decoded.map { $0.base64EncodedString() }
-                    return [
-                        "ok": true,
-                        "is_streaming": true,
-                        "chunks_b64": chunksB64,
-                        "duration_ns": durationNs,
-                    ]
+            case .end:
+                if let finalPayload = frame.payload {
+                    result.append(finalPayload)
                 }
-            }
+                return result
 
-            // Raw (non-CBOR) data
-            return [
-                "ok": true,
-                "payload_b64": rawData.base64EncodedString(),
-                "is_streaming": false,
-                "duration_ns": durationNs,
-            ]
-        } catch {
-            return ["ok": false, "error": "\(error)"]
+            case .err:
+                let code = frame.errorCode ?? "UNKNOWN"
+                let msg = frame.errorMessage ?? "Unknown error"
+                throw PluginHostError.pluginError(code: code, message: msg)
+
+            case .streamStart, .streamEnd:
+                // Skip stream markers
+                continue
+
+            case .log:
+                // Skip log frames
+                continue
+
+            default:
+                throw PluginHostError.unexpectedFrameType(frame.frameType)
+            }
         }
     }
 
-    func handleThroughput(_ cmd: [String: Any]) async -> [String: Any] {
-        guard let host = pluginHost else {
-            return ["ok": false, "error": "No host"]
-        }
-
-        let payloadMB = (cmd["payload_mb"] as? Int) ?? 5
-        let payloadSize = payloadMB * 1024 * 1024
-        let capUrn = "cap:in=\"media:number;form=scalar\";op=generate_large;out=\"media:bytes\""
-
-        guard let inputJSON = try? JSONSerialization.data(
-            withJSONObject: ["value": payloadSize]
-        ) else {
-            return ["ok": false, "error": "Failed to encode input JSON"]
-        }
-
-        let arguments: [(mediaUrn: String, value: Data)] = [
-            (mediaUrn: "media:json", value: inputJSON)
-        ]
-
-        let start = DispatchTime.now()
-
-        do {
-            let response = try await host.callWithArguments(capUrn: capUrn, arguments: arguments)
-            let elapsedNs = DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds
-            let elapsed = Double(elapsedNs) / 1_000_000_000.0
-
-            // CBOR-decode to get exact payload bytes
-            let rawData: Data
-            switch response {
-            case .single(let data):
-                rawData = data
-            case .streaming(let chunks):
-                var all = Data()
-                for chunk in chunks { all.append(chunk.payload) }
-                rawData = all
-            }
-            guard let decoded = decodeCborValues(rawData) else {
-                return ["ok": false, "error": "CBOR decode failed"]
-            }
-            let totalBytes = decoded.reduce(0) { $0 + $1.count }
-
-            if totalBytes != payloadSize {
-                return ["ok": false, "error": "Expected \(payloadSize) bytes, got \(totalBytes)"]
-            }
-
-            let mbPerSec = Double(payloadMB) / elapsed
-
-            return [
-                "ok": true,
-                "payload_mb": payloadMB,
-                "duration_s": (elapsed * 10000).rounded() / 10000,
-                "mb_per_sec": (mbPerSec * 100).rounded() / 100,
-            ]
-        } catch {
-            return ["ok": false, "error": "\(error)"]
-        }
-    }
-
-    func handleSendHeartbeat() async -> [String: Any] {
-        guard let host = pluginHost else {
-            return ["ok": false, "error": "No host"]
-        }
-        do {
-            try await host.sendHeartbeat()
-            return ["ok": true]
-        } catch {
-            return ["ok": false, "error": "\(error)"]
-        }
-    }
-
-    func handleGetManifest() -> [String: Any] {
-        guard let host = pluginHost else {
-            return ["ok": false, "error": "No host"]
-        }
-        let manifest = host.pluginManifest ?? Data()
-        return ["ok": true, "manifest_b64": manifest.base64EncodedString()]
-    }
-
-    mutating func handleShutdown() -> [String: Any] {
-        if let host = pluginHost {
-            host.close()
-            self.pluginHost = nil
-        }
-        if let process = pluginProcess {
-            process.terminate()
-            self.pluginProcess = nil
-        }
-        return ["ok": true]
+    func shutdown() {
+        try? stdinPipe.fileHandleForWriting.close()
+        process.terminate()
+        process.waitUntilExit()
     }
 }
 
-// MARK: - CBOR Decode Helper
+// MARK: - JSON Protocol
 
-/// Decode ALL CBOR values from concatenated bytes, extracting inner bytes from each.
-/// Returns nil if the data is not valid CBOR.
-/// Matches the Rust host's decode_cbor_values() behavior exactly.
-func decodeCborValues(_ data: Data) -> [Data]? {
-    if data.isEmpty { return [] }
-
-    var results: [Data] = []
-    var bytes = [UInt8](data)
-    var offset = 0
-
-    while offset < bytes.count {
-        let remaining = Array(bytes[offset...])
-        guard let decoded = try? CBOR.decode(remaining) else {
-            if results.isEmpty {
-                return nil  // Not CBOR at all
-            }
-            break  // Trailing non-CBOR data after valid CBOR items
-        }
-
-        let value: Data?
-        switch decoded {
-        case .byteString(let b):
-            value = Data(b)
-        case .utf8String(let s):
-            value = Data(s.utf8)
-        default:
-            if let jsonValue = cborToJsonValue(decoded),
-               let jsonData = try? JSONSerialization.data(withJSONObject: jsonValue) {
-                value = jsonData
-            } else {
-                value = nil
-            }
-        }
-
-        guard let v = value else { break }
-        results.append(v)
-
-        // Advance offset past the decoded CBOR item
-        // Re-encode to find the byte length consumed
-        let encodedLen = decoded.encode().count
-        offset += encodedLen
-    }
-
-    return results.isEmpty ? nil : results
+struct Command: Codable {
+    let action: String
+    let plugin: String?
+    let cap_urn: String?
+    let payload: String? // base64-encoded
 }
 
-func cborToJsonValue(_ cbor: CBOR) -> Any? {
-    switch cbor {
-    case .unsignedInt(let n): return n
-    case .negativeInt(let n): return -Int(n) - 1
-    case .utf8String(let s): return s
-    case .boolean(let b): return b
-    case .null: return NSNull()
-    case .float(let f): return f
-    case .double(let d): return d
-    case .byteString(let bytes): return Data(bytes).base64EncodedString()
-    case .array(let arr): return arr.compactMap { cborToJsonValue($0) }
-    case .map(let pairs):
-        var dict: [String: Any] = [:]
-        for (k, v) in pairs {
-            if case .utf8String(let key) = k, let val = cborToJsonValue(v) {
-                dict[key] = val
-            }
-        }
-        return dict
-    default:
-        return nil
-    }
+struct Response: Codable {
+    let ok: Bool
+    let result: String? // base64-encoded
+    let error: String?
 }
 
-// MARK: - Main
+// MARK: - Main Loop
 
-var host = SwiftTestHost()
+var pluginWrapper: PluginWrapper?
 
-// Read JSON-line commands from stdin
-while let line = readLine(strippingNewline: true) {
+let encoder = JSONEncoder()
+let decoder = JSONDecoder()
+
+while let line = readLine() {
     if line.isEmpty { continue }
 
-    guard let cmdData = line.data(using: .utf8),
-          let cmd = try? JSONSerialization.jsonObject(with: cmdData) as? [String: Any] else {
-        let resp = ["ok": false, "error": "Invalid JSON"] as [String: Any]
-        writeResponse(resp)
+    guard let cmd = try? decoder.decode(Command.self, from: Data(line.utf8)) else {
+        let resp = Response(ok: false, result: nil, error: "Invalid JSON")
+        if let json = try? encoder.encode(resp) {
+            FileHandle.standardOutput.write(json)
+            FileHandle.standardOutput.write(Data("\n".utf8))
+        }
         continue
     }
 
-    let cmdType = cmd["cmd"] as? String ?? ""
+    do {
+        switch cmd.action {
+        case "spawn":
+            guard let pluginPath = cmd.plugin else {
+                throw PluginHostError.protocolError("Missing plugin path")
+            }
+            pluginWrapper = try PluginWrapper(pluginPath: pluginPath)
 
-    let response: [String: Any]
-    switch cmdType {
-    case "spawn":
-        response = host.handleSpawn(cmd)
-    case "call":
-        // Need to run async code synchronously
-        let semaphore = DispatchSemaphore(value: 0)
-        var asyncResponse: [String: Any] = [:]
-        Task {
-            asyncResponse = await host.handleCall(cmd)
-            semaphore.signal()
+            let resp = Response(ok: true, result: nil, error: nil)
+            if let json = try? encoder.encode(resp) {
+                FileHandle.standardOutput.write(json)
+                FileHandle.standardOutput.write(Data("\n".utf8))
+            }
+
+        case "execute_cap":
+            guard let wrapper = pluginWrapper else {
+                throw PluginHostError.protocolError("No plugin spawned")
+            }
+            guard let capUrn = cmd.cap_urn else {
+                throw PluginHostError.protocolError("Missing cap_urn")
+            }
+
+            let payload: Data
+            if let b64 = cmd.payload, let decoded = Data(base64Encoded: b64) {
+                payload = decoded
+            } else {
+                payload = Data()
+            }
+
+            let result = try wrapper.executeCap(capUrn: capUrn, payload: payload)
+            let b64Result = result.base64EncodedString()
+
+            let resp = Response(ok: true, result: b64Result, error: nil)
+            if let json = try? encoder.encode(resp) {
+                FileHandle.standardOutput.write(json)
+                FileHandle.standardOutput.write(Data("\n".utf8))
+            }
+
+        case "shutdown":
+            pluginWrapper?.shutdown()
+            pluginWrapper = nil
+
+            let resp = Response(ok: true, result: nil, error: nil)
+            if let json = try? encoder.encode(resp) {
+                FileHandle.standardOutput.write(json)
+                FileHandle.standardOutput.write(Data("\n".utf8))
+            }
+            exit(0)
+
+        default:
+            throw PluginHostError.protocolError("Unknown action: \(cmd.action)")
         }
-        semaphore.wait()
-        response = asyncResponse
-    case "throughput":
-        let semaphore = DispatchSemaphore(value: 0)
-        var asyncResponse: [String: Any] = [:]
-        Task {
-            asyncResponse = await host.handleThroughput(cmd)
-            semaphore.signal()
+    } catch {
+        let resp = Response(ok: false, result: nil, error: error.localizedDescription)
+        if let json = try? encoder.encode(resp) {
+            FileHandle.standardOutput.write(json)
+            FileHandle.standardOutput.write(Data("\n".utf8))
         }
-        semaphore.wait()
-        response = asyncResponse
-    case "send_heartbeat":
-        let semaphore = DispatchSemaphore(value: 0)
-        var asyncResponse: [String: Any] = [:]
-        Task {
-            asyncResponse = await host.handleSendHeartbeat()
-            semaphore.signal()
-        }
-        semaphore.wait()
-        response = asyncResponse
-    case "get_manifest":
-        response = host.handleGetManifest()
-    case "shutdown":
-        let resp = host.handleShutdown()
-        writeResponse(resp)
-        exit(0)
-    default:
-        response = ["ok": false, "error": "Unknown command: \(cmdType)"]
     }
-
-    writeResponse(response)
-}
-
-func writeResponse(_ dict: [String: Any]) {
-    guard let data = try? JSONSerialization.data(withJSONObject: dict),
-          let str = String(data: data, encoding: .utf8) else {
-        print("{\"ok\":false,\"error\":\"Failed to encode response\"}")
-        fflush(stdout)
-        return
-    }
-    print(str)
-    fflush(stdout)
 }

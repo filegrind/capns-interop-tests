@@ -13,7 +13,7 @@ let package = Package(
         .executableTarget(
             name: "capns-interop-plugin-swift",
             dependencies: [
-                .product(name: "CapNsCbor", package: "capns-objc")
+                .product(name: "Bifaci", package: "capns-objc")
             ],
             path: "Sources"
         )

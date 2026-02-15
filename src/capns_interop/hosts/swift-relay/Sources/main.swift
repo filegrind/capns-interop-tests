@@ -1,18 +1,18 @@
 /// Multi-plugin relay host test binary for cross-language interop tests.
 ///
-/// Creates a CborPluginHost managing N plugin subprocesses, with optional CborRelaySlave layer.
+/// Creates a PluginHost managing N plugin subprocesses, with optional RelaySlave layer.
 /// Communicates via raw CBOR frames on stdin/stdout.
 ///
 /// Without --relay:
-///     stdin/stdout carry raw CBOR frames (CborPluginHost relay interface).
+///     stdin/stdout carry raw CBOR frames (PluginHost relay interface).
 ///
 /// With --relay:
 ///     stdin/stdout carry CBOR frames including relay-specific types.
-///     CborRelaySlave sits between stdin/stdout and CborPluginHost.
+///     RelaySlave sits between stdin/stdout and PluginHost.
 ///     Initial RelayNotify sent on startup.
 
 import Foundation
-import CapNsCbor
+import Bifaci
 
 // MARK: - Argument Parsing
 
@@ -88,7 +88,7 @@ func spawnPlugin(_ pluginPath: String) -> (stdout: FileHandle, stdin: FileHandle
 
 // MARK: - Run Modes
 
-func runDirect(host: CborPluginHost) {
+func runDirect(host: PluginHost) {
     do {
         try host.run(
             relayRead: FileHandle.standardInput,
@@ -96,12 +96,12 @@ func runDirect(host: CborPluginHost) {
             resourceFn: { Data() }
         )
     } catch {
-        fputs("CborPluginHost.run error: \(error)\n", stderr)
+        fputs("PluginHost.run error: \(error)\n", stderr)
         exit(1)
     }
 }
 
-func runWithRelay(host: CborPluginHost) {
+func runWithRelay(host: PluginHost) {
     // Create two pipe pairs for bidirectional communication between slave and host.
     // Pipe A: slave writes → host reads
     let pipeA = Pipe()  // slave local_writer → host relay_read
@@ -114,7 +114,7 @@ func runWithRelay(host: CborPluginHost) {
     let hostRelayWrite = pipeB.fileHandleForWriting
 
     let caps = host.capabilities
-    let limits = CborLimits()
+    let limits = Limits()
 
     var hostError: Error?
     let hostThread = Thread {
@@ -134,7 +134,7 @@ func runWithRelay(host: CborPluginHost) {
     hostThread.start()
 
     // Run RelaySlave in main thread
-    let slave = CborRelaySlave(localRead: hostToSlaveRead, localWrite: slaveToHostWrite)
+    let slave = RelaySlave(localRead: hostToSlaveRead, localWrite: slaveToHostWrite)
     do {
         try slave.run(
             socketRead: FileHandle.standardInput,
@@ -142,7 +142,7 @@ func runWithRelay(host: CborPluginHost) {
             initialNotify: (manifest: caps.isEmpty ? Data("[]".utf8) : caps, limits: limits)
         )
     } catch {
-        fputs("CborRelaySlave.run error: \(error)\n", stderr)
+        fputs("RelaySlave.run error: \(error)\n", stderr)
     }
 
     // Close slave's pipe ends to unblock host
@@ -153,7 +153,7 @@ func runWithRelay(host: CborPluginHost) {
     Thread.sleep(forTimeInterval: 2.0)
 
     if let err = hostError {
-        fputs("CborPluginHost.run error: \(err)\n", stderr)
+        fputs("PluginHost.run error: \(err)\n", stderr)
     }
 }
 
@@ -166,7 +166,7 @@ if args.plugins.isEmpty {
     exit(1)
 }
 
-let host = CborPluginHost()
+let host = PluginHost()
 var processes: [Process] = []
 
 for pluginPath in args.plugins {
