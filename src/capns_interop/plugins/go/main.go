@@ -167,13 +167,7 @@ func buildManifest() *bifaci.CapManifest {
 	}
 
 	caps := []cap.Cap{
-		// CAP_IDENTITY is mandatory in all manifests
-		*cap.NewCap(
-			mustBuild(urn.NewCapUrnBuilder().
-				InSpec("media:").
-				OutSpec("media:")),
-			"Identity", "identity",
-		),
+		// CAP_IDENTITY is auto-injected by NewPluginRuntimeWithManifest
 		*cap.NewCap(
 			mustBuild(urn.NewCapUrnBuilder().
 				Tag("op", "echo").
@@ -741,8 +735,7 @@ func main() {
 	}
 
 	// Register handlers with wildcard URNs (matching is done by PluginRuntime.FindHandler)
-	// Identity handler (mandatory) - echoes input back as-is
-	runtime.Register(`cap:in=media:;out=media:`, handleEcho)
+	// Identity handler is auto-registered by runtime
 	runtime.Register(`cap:in="media:bytes";op=echo;out="media:bytes"`, handleEcho)
 	runtime.Register(`cap:in=*;op=double;out=*`, handleDouble)
 	runtime.Register(`cap:in=*;op=stream_chunks;out=*`, handleStreamChunks)
