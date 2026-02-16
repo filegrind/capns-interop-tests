@@ -194,7 +194,7 @@ fn main() {
                     break;
                 }
                 if matches!(frame.frame_type, capns::bifaci::frame::FrameType::End | capns::bifaci::frame::FrameType::Err) {
-                    stdout_seq.remove(&frame.id);
+                    stdout_seq.remove(&capns::bifaci::frame::FlowKey::from_frame(&frame));
                 }
             }
             Ok(None) => {

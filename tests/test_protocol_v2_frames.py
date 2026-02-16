@@ -7,7 +7,7 @@ introduced in Protocol v2: STREAM_START and STREAM_END.
 import pytest
 import io
 
-from capns.cbor_frame import Frame, FrameType, MessageId, PROTOCOL_VERSION
+from capns.cbor_frame import Frame, FrameType, MessageId, PROTOCOL_VERSION, compute_checksum
 from capns.cbor_io import encode_frame, decode_frame, FrameWriter, FrameReader, Limits
 
 
@@ -46,7 +46,7 @@ def test_stream_end_constructor():
     req_id = MessageId.new_uuid()
     stream_id = "test-stream-456"
 
-    frame = Frame.stream_end(req_id, stream_id)
+    frame = Frame.stream_end(req_id, stream_id, 0)
 
     assert frame.frame_type == FrameType.STREAM_END
     assert frame.id == req_id
@@ -76,7 +76,7 @@ def test_stream_end_encode_decode_roundtrip():
     req_id = MessageId.new_uuid()
     stream_id = "end-stream"
 
-    original = Frame.stream_end(req_id, stream_id)
+    original = Frame.stream_end(req_id, stream_id, 0)
     encoded = encode_frame(original)
     decoded = decode_frame(encoded)
 
@@ -97,7 +97,7 @@ def test_stream_frames_with_wire_format():
     writer.write(start_frame)
 
     # Write STREAM_END
-    end_frame = Frame.stream_end(req_id, "stream-1")
+    end_frame = Frame.stream_end(req_id, "stream-1", 0)
     writer.write(end_frame)
 
     # Read back
@@ -172,7 +172,7 @@ def test_chunk_frame_with_stream_id():
     stream_id = "chunk-stream"
 
     # Create chunk with stream_id (Protocol v2: stream_id required)
-    frame = Frame.chunk(req_id, stream_id, 0, b"test data")
+    frame = Frame.chunk(req_id, stream_id, 0, b"test data", 0, compute_checksum(b"test data"))
 
     encoded = encode_frame(frame)
     decoded = decode_frame(encoded)

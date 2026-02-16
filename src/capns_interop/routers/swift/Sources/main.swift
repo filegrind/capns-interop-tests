@@ -215,7 +215,7 @@ while true {
             seqAssigner.assign(&frame)
             try writer.write(frame)
             if frame.frameType == FrameType.end || frame.frameType == FrameType.err {
-                seqAssigner.remove(frame.id)
+                seqAssigner.remove(FlowKey.fromFrame(frame))
             }
         }
         // nil = timeout or no frame, that's OK, loop back to check stdin
