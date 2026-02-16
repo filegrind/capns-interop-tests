@@ -23,8 +23,8 @@ from capns_interop.framework.frame_test_helper import (
 )
 from capns_interop.framework.router_process import RouterProcess
 
-SUPPORTED_ROUTER_LANGS = ["rust"]  # TODO: Add go, python, swift when implemented
-SUPPORTED_HOST_LANGS = ["rust"]  # Only relay hosts work with routers
+SUPPORTED_ROUTER_LANGS = ["rust", "swift"]
+SUPPORTED_HOST_LANGS = ["rust", "swift"]
 SUPPORTED_PLUGIN_LANGS = ["rust", "go", "python", "swift"]
 
 

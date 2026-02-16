@@ -17,7 +17,7 @@ hosts: build-rust-host build-python-host build-swift-host build-go-host
 relay-hosts: build-rust-relay-host build-python-relay-host build-swift-relay-host build-go-relay-host
 
 # Build all routers
-routers: build-rust-router
+routers: build-rust-router build-swift-router
 
 # --- Plugins ---
 
@@ -111,7 +111,10 @@ build-python-router:
 
 build-swift-router:
 	@echo "Building Swift router..."
-	@# TODO: Implement Swift router
+	cd src/capns_interop/routers/swift && swift build -c release
+	mkdir -p artifacts/build/swift-router
+	rm -f artifacts/build/swift-router/capns-interop-router-swift
+	cp src/capns_interop/routers/swift/.build/release/capns-interop-router-swift artifacts/build/swift-router/
 
 build-go-router:
 	@echo "Building Go router..."
@@ -125,6 +128,8 @@ clean:
 	cd src/capns_interop/plugins/swift && swift package clean || true
 	cd src/capns_interop/hosts/rust && cargo clean || true
 	cd src/capns_interop/hosts/swift && swift package clean || true
+	cd src/capns_interop/routers/rust && cargo clean || true
+	cd src/capns_interop/routers/swift && swift package clean || true
 	rm -f src/capns_interop/plugins/go/capns-interop-plugin-go
 	rm -f src/capns_interop/hosts/go/capns-interop-host-go
 

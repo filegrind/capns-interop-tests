@@ -19,8 +19,8 @@ from capns_interop.framework.frame_test_helper import (
 )
 from capns_interop.framework.router_process import RouterProcess
 
-SUPPORTED_ROUTER_LANGS = ["rust"]
-SUPPORTED_HOST_LANGS = ["rust"]
+SUPPORTED_ROUTER_LANGS = ["rust", "swift"]
+SUPPORTED_HOST_LANGS = ["rust", "swift"]
 SUPPORTED_PLUGIN_LANGS = ["rust", "go", "python", "swift"]
 
 

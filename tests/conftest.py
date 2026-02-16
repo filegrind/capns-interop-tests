@@ -17,6 +17,12 @@ def pytest_addoption(parser):
         default=False,
         help="Remove all cached binaries and force rebuild all artifacts"
     )
+    parser.addoption(
+        "--langs",
+        action="store",
+        default=None,
+        help="Comma-separated list of languages to test (e.g., 'rust,swift'). Tests all permutations of specified languages for router/host/plugin combinations."
+    )
 
 
 def pytest_configure(config):
@@ -30,6 +36,27 @@ def pytest_configure(config):
 
 def pytest_collection_modifyitems(config, items):
     """Modify test items based on command-line options."""
+    # Filter tests by --langs option
+    langs_option = config.getoption("--langs")
+    if langs_option:
+        allowed_langs = set(lang.strip() for lang in langs_option.split(","))
+        filtered = []
+        for item in items:
+            # Check if test has language parameters
+            if hasattr(item, "callspec"):
+                params = item.callspec.params
+                # Check router_lang, host_lang, plugin_lang (if they exist)
+                skip = False
+                for lang_param in ["router_lang", "host_lang", "plugin_lang"]:
+                    if lang_param in params:
+                        if params[lang_param] not in allowed_langs:
+                            skip = True
+                            break
+                if skip:
+                    continue
+            filtered.append(item)
+        items[:] = filtered
+
     if config.getoption("--clear"):
         # Override timeout markers when --clear is set to allow builds
         # The @pytest.mark.timeout decorator overrides global config,
@@ -370,14 +397,15 @@ def router_binaries(project_root, request):
 
     binaries = {
         "rust": artifacts / "rust-router" / "capns-interop-router-rust",
+        "swift": artifacts / "swift-router" / "capns-interop-router-swift",
         # TODO: Add other languages when implemented
         # "python": routers_src / "python" / "router.py",
-        # "swift": artifacts / "swift-router" / "capns-interop-router-swift",
         # "go": artifacts / "go-router" / "capns-interop-router-go",
     }
 
     targets = {
         "rust": ("build-rust-router", routers_src / "rust", [capns_src]),
+        "swift": ("build-swift-router", routers_src / "swift", None),
     }
 
     # Clear cached binaries if --clear option is set
