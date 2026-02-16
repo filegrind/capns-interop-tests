@@ -1,0 +1,6 @@
+# Runtime dependencies
+pytest>=7.0
+pytest-asyncio>=0.21.0
+pytest-timeout>=2.1.0
+capns>=0.1.0
+tagged-urn>=0.1.0

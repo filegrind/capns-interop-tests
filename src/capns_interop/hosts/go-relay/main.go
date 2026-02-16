@@ -23,8 +23,7 @@ import (
 	"strings"
 	"sync"
 
-	capns "github.com/filegrind/capns-go"
-	"github.com/filegrind/capns-go/cbor"
+	"github.com/filegrind/capns-go/bifaci"
 )
 
 type pluginList []string
@@ -47,7 +46,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	host := capns.NewPluginHost()
+	host := bifaci.NewPluginHost()
 	var processes []*exec.Cmd
 
 	for _, pluginPath := range plugins {
@@ -145,14 +144,14 @@ func buildPythonEnv() []string {
 	return append(os.Environ(), "PYTHONPATH="+pythonPath)
 }
 
-func runDirect(host *capns.PluginHost) {
+func runDirect(host *bifaci.PluginHost) {
 	if err := host.Run(os.Stdin, os.Stdout, func() []byte { return nil }); err != nil {
 		fmt.Fprintf(os.Stderr, "PluginHost.Run error: %v\n", err)
 		os.Exit(1)
 	}
 }
 
-func runWithRelay(host *capns.PluginHost) {
+func runWithRelay(host *bifaci.PluginHost) {
 	// Create two pipe pairs for bidirectional communication between slave and host.
 	// Pipe A: slave writes → host reads
 	aRead, aWrite, err := os.Pipe()
@@ -171,7 +170,7 @@ func runWithRelay(host *capns.PluginHost) {
 	if caps == nil {
 		caps = []byte("[]")
 	}
-	limits := cbor.DefaultLimits()
+	limits := bifaci.DefaultLimits()
 
 	var wg sync.WaitGroup
 	var hostErr error
@@ -186,8 +185,8 @@ func runWithRelay(host *capns.PluginHost) {
 	}()
 
 	// Run RelaySlave in main goroutine
-	slave := capns.NewRelaySlave(bRead, aWrite)
-	slaveErr := slave.Run(os.Stdin, os.Stdout, &capns.RelayNotifyParams{
+	slave := bifaci.NewRelaySlave(bRead, aWrite)
+	slaveErr := slave.Run(os.Stdin, os.Stdout, &bifaci.RelayNotifyParams{
 		Manifest: caps,
 		Limits:   limits,
 	})

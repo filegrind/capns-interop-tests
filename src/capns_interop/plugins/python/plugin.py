@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/opt/homebrew/Caskroom/miniforge/base/bin/python
 """
 Interoperability test plugin (Python)
 

@@ -9,18 +9,19 @@ import (
 
 	cborlib "github.com/fxamacker/cbor/v2"
 
-	capns "github.com/filegrind/capns-go"
-	"github.com/filegrind/capns-go/cbor"
+	"github.com/filegrind/capns-go/bifaci"
+	"github.com/filegrind/capns-go/cap"
+	"github.com/filegrind/capns-go/urn"
 )
 
 // collectPayload reads all CHUNK frames, decodes each as CBOR, and returns the reconstructed value
 // PROTOCOL: Each CHUNK payload is a complete, independently decodable CBOR value
 // Returns the decoded CBOR value ([]byte, string, map[string]interface{}, []interface{}, etc.)
-func collectPayload(frames <-chan cbor.Frame) interface{} {
+func collectPayload(frames <-chan bifaci.Frame) interface{} {
 	var chunks []interface{}
 	for frame := range frames {
 		switch frame.FrameType {
-		case cbor.FrameTypeChunk:
+		case bifaci.FrameTypeChunk:
 			if frame.Payload != nil {
 				// Each CHUNK payload MUST be valid CBOR - decode it
 				var value interface{}
@@ -29,7 +30,7 @@ func collectPayload(frames <-chan cbor.Frame) interface{} {
 				}
 				chunks = append(chunks, value)
 			}
-		case cbor.FrameTypeEnd:
+		case bifaci.FrameTypeEnd:
 			goto reconstruct
 		}
 	}
@@ -69,11 +70,11 @@ reconstruct:
 // collectPeerResponse reads peer response frames, decodes each CHUNK as CBOR, and reconstructs value
 // For simple values (bytes/string/int), there's typically one chunk
 // For arrays/maps, multiple chunks are combined
-func collectPeerResponse(peerFrames <-chan cbor.Frame) (interface{}, error) {
+func collectPeerResponse(peerFrames <-chan bifaci.Frame) (interface{}, error) {
 	var chunks []interface{}
 	for frame := range peerFrames {
 		switch frame.FrameType {
-		case cbor.FrameTypeChunk:
+		case bifaci.FrameTypeChunk:
 			if frame.Payload != nil {
 				// Each CHUNK payload MUST be valid CBOR - decode it
 				var value interface{}
@@ -82,9 +83,9 @@ func collectPeerResponse(peerFrames <-chan cbor.Frame) (interface{}, error) {
 				}
 				chunks = append(chunks, value)
 			}
-		case cbor.FrameTypeEnd:
+		case bifaci.FrameTypeEnd:
 			goto reconstruct
-		case cbor.FrameTypeErr:
+		case bifaci.FrameTypeErr:
 			code := frame.ErrorCode()
 			message := frame.ErrorMessage()
 			if code == "" {
@@ -156,8 +157,8 @@ func cborMapToJSON(value interface{}) ([]byte, error) {
 	return json.Marshal(value)
 }
 
-func buildManifest() *capns.CapManifest {
-	mustBuild := func(b *capns.CapUrnBuilder) *capns.CapUrn {
+func buildManifest() *bifaci.CapManifest {
+	mustBuild := func(b *urn.CapUrnBuilder) *urn.CapUrn {
 		urn, err := b.Build()
 		if err != nil {
 			panic(fmt.Sprintf("failed to build cap URN: %v", err))
@@ -165,158 +166,158 @@ func buildManifest() *capns.CapManifest {
 		return urn
 	}
 
-	caps := []capns.Cap{
+	caps := []cap.Cap{
 		// CAP_IDENTITY is mandatory in all manifests
-		*capns.NewCap(
-			mustBuild(capns.NewCapUrnBuilder().
+		*cap.NewCap(
+			mustBuild(urn.NewCapUrnBuilder().
 				InSpec("media:").
 				OutSpec("media:")),
 			"Identity", "identity",
 		),
-		*capns.NewCap(
-			mustBuild(capns.NewCapUrnBuilder().
+		*cap.NewCap(
+			mustBuild(urn.NewCapUrnBuilder().
 				Tag("op", "echo").
 				InSpec("media:bytes").
 				OutSpec("media:bytes")),
 			"Echo", "echo",
 		),
-		*capns.NewCap(
-			mustBuild(capns.NewCapUrnBuilder().
+		*cap.NewCap(
+			mustBuild(urn.NewCapUrnBuilder().
 				Tag("op", "double").
 				InSpec("media:order-value;json;textable;form=map").
 				OutSpec("media:loyalty-points;integer;textable;numeric;form=scalar")),
 			"Double", "double",
 		),
-		*capns.NewCap(
-			mustBuild(capns.NewCapUrnBuilder().
+		*cap.NewCap(
+			mustBuild(urn.NewCapUrnBuilder().
 				Tag("op", "stream_chunks").
 				InSpec("media:update-count;json;textable;form=map").
 				OutSpec("media:order-updates;textable")),
 			"Stream Chunks", "stream_chunks",
 		),
-		*capns.NewCap(
-			mustBuild(capns.NewCapUrnBuilder().
+		*cap.NewCap(
+			mustBuild(urn.NewCapUrnBuilder().
 				Tag("op", "binary_echo").
 				InSpec("media:product-image;bytes").
 				OutSpec("media:product-image;bytes")),
 			"Binary Echo", "binary_echo",
 		),
-		*capns.NewCap(
-			mustBuild(capns.NewCapUrnBuilder().
+		*cap.NewCap(
+			mustBuild(urn.NewCapUrnBuilder().
 				Tag("op", "slow_response").
 				InSpec("media:payment-delay-ms;json;textable;form=map").
 				OutSpec("media:payment-result;textable;form=scalar")),
 			"Slow Response", "slow_response",
 		),
-		*capns.NewCap(
-			mustBuild(capns.NewCapUrnBuilder().
+		*cap.NewCap(
+			mustBuild(urn.NewCapUrnBuilder().
 				Tag("op", "generate_large").
 				InSpec("media:report-size;json;textable;form=map").
 				OutSpec("media:sales-report;bytes")),
 			"Generate Large", "generate_large",
 		),
-		*capns.NewCap(
-			mustBuild(capns.NewCapUrnBuilder().
+		*cap.NewCap(
+			mustBuild(urn.NewCapUrnBuilder().
 				Tag("op", "with_status").
 				InSpec("media:fulfillment-steps;json;textable;form=map").
 				OutSpec("media:fulfillment-status;textable;form=scalar")),
 			"With Status", "with_status",
 		),
-		*capns.NewCap(
-			mustBuild(capns.NewCapUrnBuilder().
+		*cap.NewCap(
+			mustBuild(urn.NewCapUrnBuilder().
 				Tag("op", "throw_error").
 				InSpec("media:payment-error;json;textable;form=map").
 				OutSpec("media:void")),
 			"Throw Error", "throw_error",
 		),
-		*capns.NewCap(
-			mustBuild(capns.NewCapUrnBuilder().
+		*cap.NewCap(
+			mustBuild(urn.NewCapUrnBuilder().
 				Tag("op", "peer_echo").
 				InSpec("media:customer-message;textable;form=scalar").
 				OutSpec("media:customer-message;textable;form=scalar")),
 			"Peer Echo", "peer_echo",
 		),
-		*capns.NewCap(
-			mustBuild(capns.NewCapUrnBuilder().
+		*cap.NewCap(
+			mustBuild(urn.NewCapUrnBuilder().
 				Tag("op", "nested_call").
 				InSpec("media:order-value;json;textable;form=map").
 				OutSpec("media:final-price;integer;textable;numeric;form=scalar")),
 			"Nested Call", "nested_call",
 		),
-		*capns.NewCap(
-			mustBuild(capns.NewCapUrnBuilder().
+		*cap.NewCap(
+			mustBuild(urn.NewCapUrnBuilder().
 				Tag("op", "heartbeat_stress").
 				InSpec("media:monitoring-duration-ms;json;textable;form=map").
 				OutSpec("media:health-status;textable;form=scalar")),
 			"Heartbeat Stress", "heartbeat_stress",
 		),
-		*capns.NewCap(
-			mustBuild(capns.NewCapUrnBuilder().
+		*cap.NewCap(
+			mustBuild(urn.NewCapUrnBuilder().
 				Tag("op", "concurrent_stress").
 				InSpec("media:order-batch-size;json;textable;form=map").
 				OutSpec("media:batch-result;textable;form=scalar")),
 			"Concurrent Stress", "concurrent_stress",
 		),
-		*capns.NewCap(
-			mustBuild(capns.NewCapUrnBuilder().
+		*cap.NewCap(
+			mustBuild(urn.NewCapUrnBuilder().
 				Tag("op", "get_manifest").
 				InSpec("media:void").
 				OutSpec("media:service-capabilities;json;textable;form=map")),
 			"Get Manifest", "get_manifest",
 		),
-		*capns.NewCap(
-			mustBuild(capns.NewCapUrnBuilder().
+		*cap.NewCap(
+			mustBuild(urn.NewCapUrnBuilder().
 				Tag("op", "process_large").
 				InSpec("media:uploaded-document;bytes").
 				OutSpec("media:document-info;json;textable;form=map")),
 			"Process Large", "process_large",
 		),
-		*capns.NewCap(
-			mustBuild(capns.NewCapUrnBuilder().
+		*cap.NewCap(
+			mustBuild(urn.NewCapUrnBuilder().
 				Tag("op", "hash_incoming").
 				InSpec("media:uploaded-document;bytes").
 				OutSpec("media:document-hash;textable;form=scalar")),
 			"Hash Incoming", "hash_incoming",
 		),
-		*capns.NewCap(
-			mustBuild(capns.NewCapUrnBuilder().
+		*cap.NewCap(
+			mustBuild(urn.NewCapUrnBuilder().
 				Tag("op", "verify_binary").
 				InSpec("media:package-data;bytes").
 				OutSpec("media:verification-status;textable;form=scalar")),
 			"Verify Binary", "verify_binary",
 		),
-		func() capns.Cap {
+		func() cap.Cap {
 			stdin := "media:bytes"
 			position := 0
 			argDesc := "Path to invoice file to read"
 
-			cap := capns.NewCap(
-				mustBuild(capns.NewCapUrnBuilder().
+			c := cap.NewCap(
+				mustBuild(urn.NewCapUrnBuilder().
 					Tag("op", "read_file_info").
 					InSpec("media:invoice;file-path;textable;form=scalar").
 					OutSpec("media:invoice-metadata;json;textable;form=map")),
 				"Read File Info", "read_file_info",
 			)
-			cap.Args = []capns.CapArg{
+			c.Args = []cap.CapArg{
 				{
 					MediaUrn: "media:invoice;file-path;textable;form=scalar",
 					Required: true,
-					Sources: []capns.ArgSource{
+					Sources: []cap.ArgSource{
 						{Stdin: &stdin},
 						{Position: &position},
 					},
 					ArgDescription: argDesc,
 				},
 			}
-			cap.Output = &capns.CapOutput{
+			c.Output = &cap.CapOutput{
 				MediaUrn:          "media:invoice-metadata;json;textable;form=map",
 				OutputDescription: "Invoice file size and SHA256 checksum",
 			}
-			return *cap
+			return *c
 		}(),
 	}
 
-	return capns.NewCapManifest(
+	return bifaci.NewCapManifest(
 		"InteropTestPlugin",
 		"1.0.0",
 		"Interoperability testing plugin (Go)",
@@ -363,7 +364,7 @@ func parseValueRequest(cborValue interface{}) (valueRequest, error) {
 	}
 }
 
-func handleEcho(frames <-chan cbor.Frame, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
+func handleEcho(frames <-chan bifaci.Frame, emitter bifaci.StreamEmitter, peer bifaci.PeerInvoker) error {
 	cborValue := collectPayload(frames)
 	payloadBytes, err := cborValueToBytes(cborValue)
 	if err != nil {
@@ -373,7 +374,7 @@ func handleEcho(frames <-chan cbor.Frame, emitter capns.StreamEmitter, peer capn
 	return nil
 }
 
-func handleDouble(frames <-chan cbor.Frame, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
+func handleDouble(frames <-chan bifaci.Frame, emitter bifaci.StreamEmitter, peer bifaci.PeerInvoker) error {
 	payload := collectPayload(frames)
 	req, err := parseValueRequest(payload)
 	if err != nil {
@@ -394,7 +395,7 @@ func handleDouble(frames <-chan cbor.Frame, emitter capns.StreamEmitter, peer ca
 	return nil
 }
 
-func handleStreamChunks(frames <-chan cbor.Frame, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
+func handleStreamChunks(frames <-chan bifaci.Frame, emitter bifaci.StreamEmitter, peer bifaci.PeerInvoker) error {
 	payload := collectPayload(frames)
 	req, err := parseValueRequest(payload)
 	if err != nil {
@@ -415,7 +416,7 @@ func handleStreamChunks(frames <-chan cbor.Frame, emitter capns.StreamEmitter, p
 	return nil
 }
 
-func handleBinaryEcho(frames <-chan cbor.Frame, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
+func handleBinaryEcho(frames <-chan bifaci.Frame, emitter bifaci.StreamEmitter, peer bifaci.PeerInvoker) error {
 	cborValue := collectPayload(frames)
 	payloadBytes, err := cborValueToBytes(cborValue)
 	if err != nil {
@@ -425,7 +426,7 @@ func handleBinaryEcho(frames <-chan cbor.Frame, emitter capns.StreamEmitter, pee
 	return nil
 }
 
-func handleSlowResponse(frames <-chan cbor.Frame, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
+func handleSlowResponse(frames <-chan bifaci.Frame, emitter bifaci.StreamEmitter, peer bifaci.PeerInvoker) error {
 	payload := collectPayload(frames)
 	req, err := parseValueRequest(payload)
 	if err != nil {
@@ -444,7 +445,7 @@ func handleSlowResponse(frames <-chan cbor.Frame, emitter capns.StreamEmitter, p
 	return nil
 }
 
-func handleGenerateLarge(frames <-chan cbor.Frame, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
+func handleGenerateLarge(frames <-chan bifaci.Frame, emitter bifaci.StreamEmitter, peer bifaci.PeerInvoker) error {
 	payload := collectPayload(frames)
 	req, err := parseValueRequest(payload)
 	if err != nil {
@@ -466,7 +467,7 @@ func handleGenerateLarge(frames <-chan cbor.Frame, emitter capns.StreamEmitter, 
 	return nil
 }
 
-func handleWithStatus(frames <-chan cbor.Frame, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
+func handleWithStatus(frames <-chan bifaci.Frame, emitter bifaci.StreamEmitter, peer bifaci.PeerInvoker) error {
 	payload := collectPayload(frames)
 	req, err := parseValueRequest(payload)
 	if err != nil {
@@ -488,7 +489,7 @@ func handleWithStatus(frames <-chan cbor.Frame, emitter capns.StreamEmitter, pee
 	return nil
 }
 
-func handleThrowError(frames <-chan cbor.Frame, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
+func handleThrowError(frames <-chan bifaci.Frame, emitter bifaci.StreamEmitter, peer bifaci.PeerInvoker) error {
 	payload := collectPayload(frames)
 	req, err := parseValueRequest(payload)
 	if err != nil {
@@ -503,15 +504,15 @@ func handleThrowError(frames <-chan cbor.Frame, emitter capns.StreamEmitter, pee
 	return fmt.Errorf("%s", message)
 }
 
-func handlePeerEcho(frames <-chan cbor.Frame, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
+func handlePeerEcho(frames <-chan bifaci.Frame, emitter bifaci.StreamEmitter, peer bifaci.PeerInvoker) error {
 	cborValue := collectPayload(frames)
 	payloadBytes, err := cborValueToBytes(cborValue)
 	if err != nil {
 		return err
 	}
 	// Call host's echo capability with semantic URN
-	args := []capns.CapArgumentValue{
-		capns.NewCapArgumentValue("media:customer-message;textable;form=scalar", payloadBytes),
+	args := []cap.CapArgumentValue{
+		cap.NewCapArgumentValue("media:customer-message;textable;form=scalar", payloadBytes),
 	}
 
 	peerFrames, err := peer.Invoke("cap:in=media:;out=media:", args)
@@ -529,7 +530,7 @@ func handlePeerEcho(frames <-chan cbor.Frame, emitter capns.StreamEmitter, peer 
 	return emitter.EmitCbor(cborValue)
 }
 
-func handleNestedCall(frames <-chan cbor.Frame, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
+func handleNestedCall(frames <-chan bifaci.Frame, emitter bifaci.StreamEmitter, peer bifaci.PeerInvoker) error {
 	payload := collectPayload(frames)
 	req, err := parseValueRequest(payload)
 	if err != nil {
@@ -546,8 +547,8 @@ func handleNestedCall(frames <-chan cbor.Frame, emitter capns.StreamEmitter, pee
 	if err != nil {
 		return err
 	}
-	args := []capns.CapArgumentValue{
-		capns.NewCapArgumentValue("media:order-value;json;textable;form=map", input),
+	args := []cap.CapArgumentValue{
+		cap.NewCapArgumentValue("media:order-value;json;textable;form=map", input),
 	}
 
 	peerFrames, err := peer.Invoke(`cap:in=*;op=double;out=*`, args)
@@ -586,7 +587,7 @@ func handleNestedCall(frames <-chan cbor.Frame, emitter capns.StreamEmitter, pee
 	return nil
 }
 
-func handleHeartbeatStress(frames <-chan cbor.Frame, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
+func handleHeartbeatStress(frames <-chan bifaci.Frame, emitter bifaci.StreamEmitter, peer bifaci.PeerInvoker) error {
 	payload := collectPayload(frames)
 	req, err := parseValueRequest(payload)
 	if err != nil {
@@ -610,7 +611,7 @@ func handleHeartbeatStress(frames <-chan cbor.Frame, emitter capns.StreamEmitter
 	return nil
 }
 
-func handleConcurrentStress(frames <-chan cbor.Frame, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
+func handleConcurrentStress(frames <-chan bifaci.Frame, emitter bifaci.StreamEmitter, peer bifaci.PeerInvoker) error {
 	payload := collectPayload(frames)
 	req, err := parseValueRequest(payload)
 	if err != nil {
@@ -633,7 +634,7 @@ func handleConcurrentStress(frames <-chan cbor.Frame, emitter capns.StreamEmitte
 	return nil
 }
 
-func handleGetManifest(frames <-chan cbor.Frame, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
+func handleGetManifest(frames <-chan bifaci.Frame, emitter bifaci.StreamEmitter, peer bifaci.PeerInvoker) error {
 	_ = collectPayload(frames) // Consume frames even if empty
 	manifest := buildManifest()
 	manifestBytes, err := json.Marshal(manifest)
@@ -645,7 +646,7 @@ func handleGetManifest(frames <-chan cbor.Frame, emitter capns.StreamEmitter, pe
 	return nil
 }
 
-func handleProcessLarge(frames <-chan cbor.Frame, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
+func handleProcessLarge(frames <-chan bifaci.Frame, emitter bifaci.StreamEmitter, peer bifaci.PeerInvoker) error {
 	cborValue := collectPayload(frames)
 	payload, err := cborValueToBytes(cborValue)
 	if err != nil {
@@ -670,7 +671,7 @@ func handleProcessLarge(frames <-chan cbor.Frame, emitter capns.StreamEmitter, p
 	return nil
 }
 
-func handleHashIncoming(frames <-chan cbor.Frame, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
+func handleHashIncoming(frames <-chan bifaci.Frame, emitter bifaci.StreamEmitter, peer bifaci.PeerInvoker) error {
 	cborValue := collectPayload(frames)
 	payload, err := cborValueToBytes(cborValue)
 	if err != nil {
@@ -684,7 +685,7 @@ func handleHashIncoming(frames <-chan cbor.Frame, emitter capns.StreamEmitter, p
 	return nil
 }
 
-func handleVerifyBinary(frames <-chan cbor.Frame, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
+func handleVerifyBinary(frames <-chan bifaci.Frame, emitter bifaci.StreamEmitter, peer bifaci.PeerInvoker) error {
 	cborValue := collectPayload(frames)
 	payload, err := cborValueToBytes(cborValue)
 	if err != nil {
@@ -707,7 +708,7 @@ func handleVerifyBinary(frames <-chan cbor.Frame, emitter capns.StreamEmitter, p
 	return nil
 }
 
-func handleReadFileInfo(frames <-chan cbor.Frame, emitter capns.StreamEmitter, peer capns.PeerInvoker) error {
+func handleReadFileInfo(frames <-chan bifaci.Frame, emitter bifaci.StreamEmitter, peer bifaci.PeerInvoker) error {
 	cborValue := collectPayload(frames)
 	payload, err := cborValueToBytes(cborValue)
 	if err != nil {
@@ -734,7 +735,7 @@ func handleReadFileInfo(frames <-chan cbor.Frame, emitter capns.StreamEmitter, p
 
 func main() {
 	manifest := buildManifest()
-	runtime, err := capns.NewPluginRuntimeWithManifest(manifest)
+	runtime, err := bifaci.NewPluginRuntimeWithManifest(manifest)
 	if err != nil {
 		panic(fmt.Sprintf("failed to create plugin runtime: %v", err))
 	}
