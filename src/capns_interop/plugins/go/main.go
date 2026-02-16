@@ -166,6 +166,13 @@ func buildManifest() *capns.CapManifest {
 	}
 
 	caps := []capns.Cap{
+		// CAP_IDENTITY is mandatory in all manifests
+		*capns.NewCap(
+			mustBuild(capns.NewCapUrnBuilder().
+				InSpec("media:").
+				OutSpec("media:")),
+			"Identity", "identity",
+		),
 		*capns.NewCap(
 			mustBuild(capns.NewCapUrnBuilder().
 				Tag("op", "echo").
@@ -733,6 +740,8 @@ func main() {
 	}
 
 	// Register handlers with wildcard URNs (matching is done by PluginRuntime.FindHandler)
+	// Identity handler (mandatory) - echoes input back as-is
+	runtime.Register(`cap:in=media:;out=media:`, handleEcho)
 	runtime.Register(`cap:in="media:bytes";op=echo;out="media:bytes"`, handleEcho)
 	runtime.Register(`cap:in=*;op=double;out=*`, handleDouble)
 	runtime.Register(`cap:in=*;op=stream_chunks;out=*`, handleStreamChunks)
