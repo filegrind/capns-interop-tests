@@ -25,9 +25,9 @@ SUPPORTED_PLUGIN_LANGS = ["rust", "go", "python", "swift"]
 
 
 @pytest.mark.timeout(30)
-@pytest.mark.parametrize("router_lang", SUPPORTED_ROUTER_LANGS)
-@pytest.mark.parametrize("host_lang", SUPPORTED_HOST_LANGS)
 @pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
+@pytest.mark.parametrize("host_lang", SUPPORTED_HOST_LANGS)
+@pytest.mark.parametrize("router_lang", SUPPORTED_ROUTER_LANGS)
 def test_echo(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang, plugin_lang):
     """Test echo capability: send bytes, receive identical bytes back."""
     router = RouterProcess(
@@ -51,9 +51,9 @@ def test_echo(router_binaries, relay_host_binaries, plugin_binaries, router_lang
 
 
 @pytest.mark.timeout(30)
-@pytest.mark.parametrize("router_lang", SUPPORTED_ROUTER_LANGS)
-@pytest.mark.parametrize("host_lang", SUPPORTED_HOST_LANGS)
 @pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
+@pytest.mark.parametrize("host_lang", SUPPORTED_HOST_LANGS)
+@pytest.mark.parametrize("router_lang", SUPPORTED_ROUTER_LANGS)
 def test_double(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang, plugin_lang):
     """Test double capability: send number, receive doubled result."""
     router = RouterProcess(
@@ -87,9 +87,9 @@ def test_double(router_binaries, relay_host_binaries, plugin_binaries, router_la
 
 
 @pytest.mark.timeout(30)
-@pytest.mark.parametrize("router_lang", SUPPORTED_ROUTER_LANGS)
-@pytest.mark.parametrize("host_lang", SUPPORTED_HOST_LANGS)
 @pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
+@pytest.mark.parametrize("host_lang", SUPPORTED_HOST_LANGS)
+@pytest.mark.parametrize("router_lang", SUPPORTED_ROUTER_LANGS)
 def test_binary_echo(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang, plugin_lang):
     """Test binary echo: send all 256 byte values, receive identical data back."""
     router = RouterProcess(
@@ -113,9 +113,9 @@ def test_binary_echo(router_binaries, relay_host_binaries, plugin_binaries, rout
 
 
 @pytest.mark.timeout(30)
-@pytest.mark.parametrize("router_lang", SUPPORTED_ROUTER_LANGS)
-@pytest.mark.parametrize("host_lang", SUPPORTED_HOST_LANGS)
 @pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
+@pytest.mark.parametrize("host_lang", SUPPORTED_HOST_LANGS)
+@pytest.mark.parametrize("router_lang", SUPPORTED_ROUTER_LANGS)
 def test_get_manifest(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang, plugin_lang):
     """Test manifest retrieval via get_manifest cap."""
     router = RouterProcess(
