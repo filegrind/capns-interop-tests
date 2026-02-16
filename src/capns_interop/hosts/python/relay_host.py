@@ -34,10 +34,10 @@ _tagged_urn_py_src = os.path.abspath(os.path.join(_script_dir, "..", "..", "..",
 sys.path.insert(0, _capns_py_src)
 sys.path.insert(0, _tagged_urn_py_src)
 
-from capns.plugin_host_runtime import PluginHost
-from capns.plugin_relay import RelaySlave
-from capns.cbor_io import FrameReader, FrameWriter
-from capns.cbor_frame import Limits
+from capns.bifaci.host_runtime import PluginHost
+from capns.bifaci.relay import RelaySlave
+from capns.bifaci.io import FrameReader, FrameWriter
+from capns.bifaci.frame import Limits
 
 
 def spawn_plugin(plugin_path: str):

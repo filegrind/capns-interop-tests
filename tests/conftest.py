@@ -169,6 +169,12 @@ def plugin_binaries(project_root, request):
         "go": ("build-go", src / "go", None),
     }
 
+    # Filter targets based on --langs option
+    langs_option = request.config.getoption("--langs")
+    if langs_option:
+        allowed_langs = set(lang.strip() for lang in langs_option.split(","))
+        targets = {lang: target_info for lang, target_info in targets.items() if lang in allowed_langs}
+
     # Clear cached binaries if --clear option is set
     if clear_cache:
         print("\n--clear: Removing cached plugin binaries...")
@@ -346,6 +352,12 @@ def relay_host_binaries(project_root, request):
         "go": ("build-go-relay-host", hosts_src / "go-relay", None),
     }
 
+    # Filter targets based on --langs option
+    langs_option = request.config.getoption("--langs")
+    if langs_option:
+        allowed_langs = set(lang.strip() for lang in langs_option.split(","))
+        targets = {lang: target_info for lang, target_info in targets.items() if lang in allowed_langs}
+
     # Clear cached binaries if --clear option is set
     if clear_cache:
         print("\n--clear: Removing cached relay host binaries...")
@@ -407,6 +419,12 @@ def router_binaries(project_root, request):
         "rust": ("build-rust-router", routers_src / "rust", [capns_src]),
         "swift": ("build-swift-router", routers_src / "swift", None),
     }
+
+    # Filter targets based on --langs option
+    langs_option = request.config.getoption("--langs")
+    if langs_option:
+        allowed_langs = set(lang.strip() for lang in langs_option.split(","))
+        targets = {lang: target_info for lang, target_info in targets.items() if lang in allowed_langs}
 
     # Clear cached binaries if --clear option is set
     if clear_cache:

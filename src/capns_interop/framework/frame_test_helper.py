@@ -17,8 +17,8 @@ _project_root = Path(__file__).parent.parent.parent.parent.parent
 sys.path.insert(0, str(_project_root / "capns-py" / "src"))
 sys.path.insert(0, str(_project_root / "tagged-urn-py" / "src"))
 
-from capns.cbor_frame import Frame, FrameType, Limits, MessageId, compute_checksum
-from capns.cbor_io import FrameReader, FrameWriter
+from capns.bifaci.frame import Frame, FrameType, Limits, MessageId, compute_checksum
+from capns.bifaci.io import FrameReader, FrameWriter
 
 
 def make_req_id() -> MessageId:

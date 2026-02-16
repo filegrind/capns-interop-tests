@@ -8,7 +8,7 @@ import json
 import hashlib
 from .. import TEST_CAPS
 from .base import Scenario, ScenarioResult
-from capns.caller import CapArgumentValue
+from capns.cap.caller import CapArgumentValue
 
 
 class LargeIncomingPayloadScenario(Scenario):

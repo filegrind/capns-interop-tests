@@ -13,7 +13,7 @@ payload sizes and types.
 
 from .. import TEST_CAPS
 from .base import Scenario, ScenarioResult
-from capns.caller import CapArgumentValue
+from capns.cap.caller import CapArgumentValue
 
 
 class SingleStreamScenario(Scenario):

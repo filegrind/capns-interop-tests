@@ -10,7 +10,7 @@ Architecture:
 import json
 import pytest
 
-from capns.cbor_frame import FrameType
+from capns.bifaci.frame import FrameType
 from capns_interop import TEST_CAPS
 from capns_interop.framework.frame_test_helper import (
     make_req_id,

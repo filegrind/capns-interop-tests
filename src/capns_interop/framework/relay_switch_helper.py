@@ -21,7 +21,7 @@ _project_root = Path(__file__).parent.parent.parent.parent.parent
 sys.path.insert(0, str(_project_root / "capns-py" / "src"))
 sys.path.insert(0, str(_project_root / "tagged-urn-py" / "src"))
 
-from capns.relay_switch import RelaySwitch, SocketPair
+from capns.bifaci.relay_switch import RelaySwitch, SocketPair
 from capns_interop.framework.frame_test_helper import HostProcess
 
 

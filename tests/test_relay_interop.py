@@ -10,7 +10,7 @@ Architecture:
 import json
 import pytest
 
-from capns.cbor_frame import Frame, FrameType, Limits, MessageId
+from capns.bifaci.frame import Frame, FrameType, Limits, MessageId
 from capns_interop import TEST_CAPS
 from capns_interop.framework.frame_test_helper import (
     make_req_id,
@@ -118,7 +118,7 @@ def test_relay_state_delivery(router_binaries, relay_host_binaries, plugin_binar
 
     try:
         # Send RelayState through router to slave
-        from capns.cbor_io import FrameWriter
+        from capns.bifaci.io import FrameWriter
         state_frame = Frame.relay_state(b'{"memory_mb": 1024}')
         writer.write(state_frame)
 

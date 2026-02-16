@@ -63,12 +63,12 @@ def add_module_paths():
 
 add_module_paths()
 
-from capns.plugin_runtime import PluginRuntime
-from capns.manifest import CapManifest, Cap
-from capns.cap_urn import CapUrn, CapUrnBuilder
-from capns.caller import CapArgumentValue
-from capns.cap import CapArg, CapOutput, StdinSource, PositionSource
-from capns.cbor_frame import Frame, FrameType
+from capns.bifaci.plugin_runtime import PluginRuntime
+from capns.bifaci.manifest import CapManifest, Cap
+from capns.urn.cap_urn import CapUrn, CapUrnBuilder
+from capns.cap.caller import CapArgumentValue
+from capns.cap.definition import CapArg, CapOutput, StdinSource, PositionSource
+from capns.bifaci.frame import Frame, FrameType
 import queue
 
 

@@ -7,8 +7,8 @@ introduced in Protocol v2: STREAM_START and STREAM_END.
 import pytest
 import io
 
-from capns.cbor_frame import Frame, FrameType, MessageId, PROTOCOL_VERSION, compute_checksum
-from capns.cbor_io import encode_frame, decode_frame, FrameWriter, FrameReader, Limits
+from capns.bifaci.frame import Frame, FrameType, MessageId, PROTOCOL_VERSION, compute_checksum
+from capns.bifaci.io import encode_frame, decode_frame, FrameWriter, FrameReader, Limits
 
 
 def test_protocol_version_is_2():
@@ -215,7 +215,7 @@ def test_frame_type_from_u8_rejects_12():
 @pytest.mark.asyncio
 async def test_protocol_v2_handshake():
     """Test that handshake negotiates Protocol v2."""
-    from capns.cbor_io import handshake, handshake_accept
+    from capns.bifaci.io import handshake, handshake_accept
 
     # Create host and plugin pipes
     host_to_plugin = io.BytesIO()
@@ -225,9 +225,9 @@ async def test_protocol_v2_handshake():
     host_limits = Limits.default()
 
     # Write host HELLO to pipe
-    from capns.cbor_frame import Frame
+    from capns.bifaci.frame import Frame
     hello_frame = Frame.hello(host_limits.max_frame, host_limits.max_chunk)
-    from capns.cbor_io import write_frame
+    from capns.bifaci.io import write_frame
 
     write_frame(host_to_plugin, hello_frame, host_limits)
     host_to_plugin.seek(0)
