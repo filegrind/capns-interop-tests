@@ -187,12 +187,17 @@ fn main() {
         use std::time::Duration;
         match switch.read_from_masters_timeout(Duration::from_millis(10)) {
             Ok(Some(mut frame)) => {
-                eprintln!("[Router/main] Received from master: {:?} (id={:?})", frame.frame_type, frame.id);
+                eprintln!("[Router/main] Received from master: {:?} (id={:?}, seq={}, payload_len={})",
+                    frame.frame_type, frame.id, frame.seq,
+                    frame.payload.as_ref().map_or(0, |p| p.len()));
                 stdout_seq.assign(&mut frame);
+                let encoded_size = capns::bifaci::io::encode_frame(&frame).map(|b| b.len()).unwrap_or(0);
+                eprintln!("[Router/main] Writing frame to stdout: {:?} encoded_size={}", frame.frame_type, encoded_size);
                 if let Err(e) = writer.write(&frame) {
                     eprintln!("[Router/main] Error writing to stdout: {}", e);
                     break;
                 }
+                eprintln!("[Router/main] Frame written successfully: {:?}", frame.frame_type);
                 if matches!(frame.frame_type, capns::bifaci::frame::FrameType::End | capns::bifaci::frame::FrameType::Err) {
                     stdout_seq.remove(&capns::bifaci::frame::FlowKey::from_frame(&frame));
                 }

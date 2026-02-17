@@ -16,6 +16,7 @@ from capns_interop.framework.frame_test_helper import (
     send_request,
     read_response,
     decode_cbor_response,
+    FrameType,
 )
 from capns_interop.framework.router_process import RouterProcess
 
@@ -128,7 +129,59 @@ def test_get_manifest(router_binaries, relay_host_binaries, plugin_binaries, rou
     try:
         req_id = make_req_id()
         send_request(writer, req_id, TEST_CAPS["get_manifest"], b"", media_urn="media:void")
-        output, frames = read_response(reader)
+
+        # DEBUG: Manually read raw frames to trace what's on the pipe
+        import sys, struct, cbor2
+        from capns.bifaci.io import decode_frame as df2
+        raw_stream = reader.inner_mut()
+        debug_frames = []
+        for frame_num in range(20):
+            raw_len = raw_stream.read(4)
+            if len(raw_len) < 4:
+                print(f"[RAW_DEBUG] frame#{frame_num}: EOF (got {len(raw_len)} bytes)", file=sys.stderr)
+                break
+            frame_len = struct.unpack('>I', raw_len)[0]
+            raw_data = raw_stream.read(frame_len)
+            if len(raw_data) < frame_len:
+                print(f"[RAW_DEBUG] frame#{frame_num}: TRUNCATED (expected {frame_len}, got {len(raw_data)})", file=sys.stderr)
+                break
+            try:
+                decoded_map = cbor2.loads(raw_data)
+                ft = decoded_map.get(1, '?')  # key 1 = FRAME_TYPE
+                has_payload = 6 in decoded_map and decoded_map[6] is not None  # key 6 = PAYLOAD
+                payload_len = len(decoded_map[6]) if has_payload else 0
+                print(f"[RAW_DEBUG] frame#{frame_num}: frame_type={ft} cbor_len={frame_len} payload_len={payload_len} keys={sorted(decoded_map.keys())}", file=sys.stderr)
+            except Exception as e:
+                print(f"[RAW_DEBUG] frame#{frame_num}: CBOR decode error: {e}, raw_len={frame_len}, first_20={raw_data[:20].hex()}", file=sys.stderr)
+
+            frame = df2(raw_data)
+            debug_frames.append(frame)
+            if frame.frame_type == FrameType.END or frame.frame_type == FrameType.ERR:
+                break
+
+        # Now use the debug_frames as if read_response had read them
+        chunks = []
+        for frame in debug_frames:
+            if frame.frame_type == FrameType.CHUNK and frame.payload:
+                decoded = cbor2.loads(frame.payload)
+                chunks.append(decoded)
+        if not chunks:
+            output = b''
+        elif len(chunks) == 1:
+            output = chunks[0]
+        else:
+            first = chunks[0]
+            if isinstance(first, bytes):
+                output = b''.join(c for c in chunks if isinstance(c, bytes))
+            else:
+                output = chunks
+        frames = debug_frames
+
+        # DEBUG: Print what we received
+        import sys
+        print(f"[DEBUG] output type={type(output).__name__} len={len(output) if hasattr(output, '__len__') else 'N/A'} repr={repr(output)[:200]}", file=sys.stderr)
+        for i, f in enumerate(frames):
+            print(f"[DEBUG] frame[{i}] type={f.frame_type} id={f.id} payload_len={len(f.payload) if f.payload else 0}", file=sys.stderr)
 
         # Parse the manifest JSON
         manifest = json.loads(output)
