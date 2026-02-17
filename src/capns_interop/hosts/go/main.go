@@ -13,7 +13,6 @@ import (
 	"math"
 	"os"
 	"os/exec"
-	"strings"
 	"time"
 
 	capns "github.com/filegrind/capns-go"
@@ -98,65 +97,8 @@ func writeResponse(resp map[string]interface{}) {
 func (h *goTestHost) handleSpawn(cmd map[string]interface{}) (map[string]interface{}, error) {
 	pluginPath, _ := cmd["plugin_path"].(string)
 
-	var args []string
-	if strings.HasSuffix(pluginPath, ".py") {
-		// Use PYTHON_EXECUTABLE env var if set (passed from pytest),
-		// otherwise fall back to "python3"
-		pythonExe := os.Getenv("PYTHON_EXECUTABLE")
-		if pythonExe == "" {
-			pythonExe = "python3"
-		}
-		args = []string{pythonExe, pluginPath}
-	} else {
-		args = []string{pluginPath}
-	}
-
-	h.process = exec.Command(args[0], args[1:]...)
+	h.process = exec.Command(pluginPath)
 	h.process.Stderr = os.Stderr
-
-	// If spawning a Python plugin, ensure PYTHONPATH includes capns-py and tagged-urn-py
-	if strings.HasSuffix(pluginPath, ".py") {
-		// Derive capns-py path relative to this binary's parent project
-		// The plugin.py imports capns.plugin_runtime which needs capns-py/src in PYTHONPATH
-		pluginDir := pluginPath
-		// Walk up from plugin path to find the project root (capns-interop-tests)
-		// then locate capns-py and tagged-urn-py relative to it
-		// Use executable path to find project root
-		execPath, _ := os.Executable()
-		projectRoot := ""
-		// Try to find capns-py by walking up from the executable
-		dir := execPath
-		for i := 0; i < 10; i++ {
-			dir = dir[:strings.LastIndex(dir, "/")]
-			if _, err := os.Stat(dir + "/capns-py/src"); err == nil {
-				projectRoot = dir
-				break
-			}
-		}
-		if projectRoot == "" {
-			// Try from plugin path
-			dir = pluginDir
-			for i := 0; i < 10; i++ {
-				idx := strings.LastIndex(dir, "/")
-				if idx < 0 {
-					break
-				}
-				dir = dir[:idx]
-				if _, err := os.Stat(dir + "/capns-py/src"); err == nil {
-					projectRoot = dir
-					break
-				}
-			}
-		}
-		if projectRoot != "" {
-			pythonPath := projectRoot + "/capns-py/src:" + projectRoot + "/tagged-urn-py/src"
-			existing := os.Getenv("PYTHONPATH")
-			if existing != "" {
-				pythonPath = pythonPath + ":" + existing
-			}
-			h.process.Env = append(os.Environ(), "PYTHONPATH="+pythonPath)
-		}
-	}
 
 	var err error
 	h.stdin, err = h.process.StdinPipe()

@@ -63,14 +63,8 @@ struct Args {
 func spawnPlugin(_ pluginPath: String) -> (stdout: FileHandle, stdin: FileHandle, process: Process) {
     let process = Process()
 
-    if pluginPath.hasSuffix(".py") {
-        let pythonExe = ProcessInfo.processInfo.environment["PYTHON_EXECUTABLE"] ?? "python3"
-        process.executableURL = URL(fileURLWithPath: pythonExe)
-        process.arguments = [pluginPath]
-    } else {
-        process.executableURL = URL(fileURLWithPath: pluginPath)
-        process.arguments = []
-    }
+    process.executableURL = URL(fileURLWithPath: pluginPath)
+    process.arguments = []
 
     let stdinPipe = Pipe()
     let stdoutPipe = Pipe()

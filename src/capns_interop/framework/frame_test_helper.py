@@ -220,11 +220,7 @@ class HostProcess:
             self.proc.wait(timeout=2)
 
     def _build_command(self) -> List[str]:
-        cmd = []
-        if self.binary_path.endswith(".py"):
-            cmd = [sys.executable, self.binary_path]
-        else:
-            cmd = [self.binary_path]
+        cmd = [self.binary_path]
 
         if self.relay:
             cmd.append("--relay")
@@ -235,17 +231,7 @@ class HostProcess:
         return cmd
 
     def _build_env(self):
-        env = os.environ.copy()
-        env["PYTHON_EXECUTABLE"] = sys.executable
-        # Add capns-py and tagged-urn-py to PYTHONPATH
-        python_paths = [
-            str(_project_root / "capns-py" / "src"),
-            str(_project_root / "tagged-urn-py" / "src"),
-        ]
-        if "PYTHONPATH" in env:
-            python_paths.append(env["PYTHONPATH"])
-        env["PYTHONPATH"] = ":".join(python_paths)
-        return env
+        return os.environ.copy()
 
     def _drain_stderr(self):
         def _drain():

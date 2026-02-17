@@ -80,24 +80,8 @@ func main() {
 }
 
 func spawnPlugin(pluginPath string) (stdout io.ReadCloser, stdin io.WriteCloser, cmd *exec.Cmd, err error) {
-	var args []string
-	if strings.HasSuffix(pluginPath, ".py") {
-		pythonExe := os.Getenv("PYTHON_EXECUTABLE")
-		if pythonExe == "" {
-			pythonExe = "python3"
-		}
-		args = []string{pythonExe, pluginPath}
-	} else {
-		args = []string{pluginPath}
-	}
-
-	cmd = exec.Command(args[0], args[1:]...)
+	cmd = exec.Command(pluginPath)
 	cmd.Stderr = os.Stderr
-
-	// Set up PYTHONPATH for Python plugins
-	if strings.HasSuffix(pluginPath, ".py") {
-		cmd.Env = buildPythonEnv()
-	}
 
 	stdin, err = cmd.StdinPipe()
 	if err != nil {
@@ -114,34 +98,6 @@ func spawnPlugin(pluginPath string) (stdout io.ReadCloser, stdin io.WriteCloser,
 	}
 
 	return stdout, stdin, cmd, nil
-}
-
-func buildPythonEnv() []string {
-	// Find project root by walking up from executable path
-	execPath, _ := os.Executable()
-	projectRoot := ""
-	dir := execPath
-	for i := 0; i < 10; i++ {
-		idx := strings.LastIndex(dir, "/")
-		if idx < 0 {
-			break
-		}
-		dir = dir[:idx]
-		if _, err := os.Stat(dir + "/capns-py/src"); err == nil {
-			projectRoot = dir
-			break
-		}
-	}
-	if projectRoot == "" {
-		return os.Environ()
-	}
-
-	pythonPath := projectRoot + "/capns-py/src:" + projectRoot + "/tagged-urn-py/src"
-	existing := os.Getenv("PYTHONPATH")
-	if existing != "" {
-		pythonPath = pythonPath + ":" + existing
-	}
-	return append(os.Environ(), "PYTHONPATH="+pythonPath)
 }
 
 func runDirect(host *bifaci.PluginHost) {

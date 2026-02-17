@@ -70,14 +70,7 @@ fn parse_args() -> Args {
 }
 
 fn spawn_plugin(plugin_path: &str) -> (std::process::ChildStdout, std::process::ChildStdin, std::process::Child) {
-    let mut cmd = if plugin_path.ends_with(".py") {
-        let python_exe = std::env::var("PYTHON_EXECUTABLE").unwrap_or_else(|_| "python3".to_string());
-        let mut c = Command::new(&python_exe);
-        c.arg(plugin_path);
-        c
-    } else {
-        Command::new(plugin_path)
-    };
+    let mut cmd = Command::new(plugin_path);
 
     cmd.stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())

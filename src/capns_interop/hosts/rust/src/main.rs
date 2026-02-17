@@ -166,15 +166,7 @@ impl RustTestHost {
     async fn handle_spawn(&mut self, cmd: &Value) -> Value {
         let plugin_path = cmd["plugin_path"].as_str().unwrap_or("");
 
-        let mut command = if plugin_path.ends_with(".py") {
-            // Use PYTHON_EXECUTABLE env var for correct Python interpreter
-            let python = env::var("PYTHON_EXECUTABLE").unwrap_or_else(|_| "python3".to_string());
-            let mut c = Command::new(&python);
-            c.arg(plugin_path);
-            c
-        } else {
-            Command::new(plugin_path)
-        };
+        let mut command = Command::new(plugin_path);
 
         command
             .stdin(std::process::Stdio::piped())

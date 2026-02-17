@@ -23,15 +23,7 @@ final class PluginWrapper {
         let stdinPipe = Pipe()
         let stdoutPipe = Pipe()
 
-        if pluginPath.hasSuffix(".py") {
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            process.arguments = ["python3", pluginPath]
-        } else if pluginPath.contains("/") {
-            process.executableURL = URL(fileURLWithPath: pluginPath)
-        } else {
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            process.arguments = [pluginPath]
-        }
+        process.executableURL = URL(fileURLWithPath: pluginPath)
 
         process.standardInput = stdinPipe
         process.standardOutput = stdoutPipe

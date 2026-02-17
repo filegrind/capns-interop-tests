@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/opt/homebrew/Caskroom/miniforge/base/bin/python
 """Multi-plugin relay host test binary for cross-language interop tests.
 
 Creates a PluginHost managing N plugin subprocesses, with optional RelaySlave layer.
@@ -42,24 +42,11 @@ from capns.bifaci.frame import Limits
 
 def spawn_plugin(plugin_path: str):
     """Spawn a plugin subprocess, return (stdout, stdin, process)."""
-    if plugin_path.endswith(".py"):
-        python_exe = os.environ.get("PYTHON_EXECUTABLE", sys.executable)
-        args = [python_exe, plugin_path]
-    else:
-        args = [plugin_path]
-
-    env = os.environ.copy()
-    python_paths = [_capns_py_src, _tagged_urn_py_src]
-    if "PYTHONPATH" in env:
-        python_paths.append(env["PYTHONPATH"])
-    env["PYTHONPATH"] = ":".join(python_paths)
-
     proc = subprocess.Popen(
-        args,
+        [plugin_path],
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
-        env=env,
     )
     return proc.stdout, proc.stdin, proc
 
