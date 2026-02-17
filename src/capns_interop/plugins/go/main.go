@@ -381,11 +381,8 @@ func handleDouble(frames <-chan bifaci.Frame, emitter bifaci.StreamEmitter, peer
 	}
 
 	result := value * 2
-	resultBytes, err := json.Marshal(result)
-	if err != nil {
-		return err
-	}
-	emitter.EmitCbor(resultBytes)
+	// Emit as CBOR integer directly (mirrors Rust: output.emit_cbor(&ciborium::Value::Integer(result.into())))
+	emitter.EmitCbor(result)
 	return nil
 }
 
@@ -536,7 +533,7 @@ func handleNestedCall(frames <-chan bifaci.Frame, emitter bifaci.StreamEmitter, 
 		return fmt.Errorf("expected number: %w", err)
 	}
 
-	// Call host's double capability
+	// Call host's double capability — use exact URN (mirrors Rust)
 	input, err := json.Marshal(map[string]uint64{"value": value})
 	if err != nil {
 		return err
@@ -545,7 +542,7 @@ func handleNestedCall(frames <-chan bifaci.Frame, emitter bifaci.StreamEmitter, 
 		cap.NewCapArgumentValue("media:order-value;json;textable;form=map", input),
 	}
 
-	peerFrames, err := peer.Invoke(`cap:in=*;op=double;out=*`, args)
+	peerFrames, err := peer.Invoke(`cap:in="media:order-value;json;textable;form=map";op=double;out="media:loyalty-points;integer;textable;numeric;form=scalar"`, args)
 	if err != nil {
 		return fmt.Errorf("peer invoke failed: %w", err)
 	}
@@ -556,7 +553,7 @@ func handleNestedCall(frames <-chan bifaci.Frame, emitter bifaci.StreamEmitter, 
 		return err
 	}
 
-	// Extract integer from response
+	// Extract integer from response (mirrors Rust: ciborium::Value::Integer branch)
 	var hostResult uint64
 	switch v := cborValue.(type) {
 	case uint64:

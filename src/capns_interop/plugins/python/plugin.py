@@ -358,14 +358,14 @@ def handle_echo(frames: queue.Queue, emitter, peer):
 
 
 def handle_double(frames: queue.Queue, emitter, peer):
-    """Double - doubles a number."""
+    """Double - doubles a number. Emits CBOR integer (mirrors Rust: emit_cbor(&Integer(result)))."""
     payload = collect_payload(frames)
     # collect_payload returns dict for CBOR Maps, bytes for CBOR Bytes
     data = payload if isinstance(payload, dict) else json.loads(payload)
     value = data["value"]
     result = value * 2
-    result_bytes = json.dumps(result).encode('utf-8')
-    emitter.emit_cbor(result_bytes)
+    # Emit as CBOR integer directly (mirrors Rust output.emit_cbor(&ciborium::Value::Integer(result.into())))
+    emitter.emit_cbor(result)
 
 
 def handle_stream_chunks(frames: queue.Queue, emitter, peer):
@@ -464,9 +464,9 @@ def handle_nested_call(frames: queue.Queue, emitter, peer):
     data = payload if isinstance(payload, dict) else json.loads(payload)
     value = data["value"]
 
-    # Call host's double capability
+    # Call host's double capability — use exact URN (mirrors Rust)
     input_data = json.dumps({"value": value}).encode('utf-8')
-    peer_frames = peer.invoke("cap:in=*;op=double;out=*", [CapArgumentValue("media:order-value;json;textable;form=map", input_data)])
+    peer_frames = peer.invoke('cap:in="media:order-value;json;textable;form=map";op=double;out="media:loyalty-points;integer;textable;numeric;form=scalar"', [CapArgumentValue("media:order-value;json;textable;form=map", input_data)])
 
     # Collect and decode peer response
     cbor_value = collect_peer_response(peer_frames)
