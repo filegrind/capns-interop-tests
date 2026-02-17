@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"os"
 	"time"
 
 	cborlib "github.com/fxamacker/cbor/v2"
@@ -14,16 +15,18 @@ import (
 	"github.com/filegrind/capns-go/urn"
 )
 
-// collectPayload reads all CHUNK frames, decodes each as CBOR, and returns the reconstructed value
-// PROTOCOL: Each CHUNK payload is a complete, independently decodable CBOR value
-// Returns the decoded CBOR value ([]byte, string, map[string]interface{}, []interface{}, etc.)
+// =============================================================================
+// Helpers
+// =============================================================================
+
+// collectPayload reads all CHUNK frames, decodes each as CBOR, and returns the reconstructed value.
+// PROTOCOL: Each CHUNK payload is a complete, independently decodable CBOR value.
 func collectPayload(frames <-chan bifaci.Frame) interface{} {
 	var chunks []interface{}
 	for frame := range frames {
 		switch frame.FrameType {
 		case bifaci.FrameTypeChunk:
 			if frame.Payload != nil {
-				// Each CHUNK payload MUST be valid CBOR - decode it
 				var value interface{}
 				if err := cborlib.Unmarshal(frame.Payload, &value); err != nil {
 					panic(fmt.Sprintf("CHUNK payload must be valid CBOR: %v", err))
@@ -36,47 +39,40 @@ func collectPayload(frames <-chan bifaci.Frame) interface{} {
 	}
 
 reconstruct:
-	// Reconstruct value from chunks
 	if len(chunks) == 0 {
 		return nil
 	} else if len(chunks) == 1 {
 		return chunks[0]
-	} else {
-		// Multiple chunks - concatenate bytes/strings or collect as array
-		switch chunks[0].(type) {
-		case []byte:
-			var accumulated []byte
-			for _, chunk := range chunks {
-				if b, ok := chunk.([]byte); ok {
-					accumulated = append(accumulated, b...)
-				}
+	}
+	switch chunks[0].(type) {
+	case []byte:
+		var accumulated []byte
+		for _, chunk := range chunks {
+			if b, ok := chunk.([]byte); ok {
+				accumulated = append(accumulated, b...)
 			}
-			return accumulated
-		case string:
-			var accumulated string
-			for _, chunk := range chunks {
-				if s, ok := chunk.(string); ok {
-					accumulated += s
-				}
-			}
-			return accumulated
-		default:
-			// For other types (map, int, etc.), return as array
-			return chunks
 		}
+		return accumulated
+	case string:
+		var accumulated string
+		for _, chunk := range chunks {
+			if s, ok := chunk.(string); ok {
+				accumulated += s
+			}
+		}
+		return accumulated
+	default:
+		return chunks
 	}
 }
 
-// collectPeerResponse reads peer response frames, decodes each CHUNK as CBOR, and reconstructs value
-// For simple values (bytes/string/int), there's typically one chunk
-// For arrays/maps, multiple chunks are combined
+// collectPeerResponse reads peer response frames and reconstructs the value.
 func collectPeerResponse(peerFrames <-chan bifaci.Frame) (interface{}, error) {
 	var chunks []interface{}
 	for frame := range peerFrames {
 		switch frame.FrameType {
 		case bifaci.FrameTypeChunk:
 			if frame.Payload != nil {
-				// Each CHUNK payload MUST be valid CBOR - decode it
 				var value interface{}
 				if err := cborlib.Unmarshal(frame.Payload, &value); err != nil {
 					return nil, fmt.Errorf("invalid CBOR in CHUNK: %w", err)
@@ -99,46 +95,50 @@ func collectPeerResponse(peerFrames <-chan bifaci.Frame) (interface{}, error) {
 	}
 
 reconstruct:
-	// Reconstruct value from chunks
 	if len(chunks) == 0 {
 		return nil, fmt.Errorf("no chunks received")
 	} else if len(chunks) == 1 {
-		// Single chunk - return value as-is
 		return chunks[0], nil
-	} else {
-		// Multiple chunks - concatenate bytes/strings, or collect array elements
-		first := chunks[0]
-		switch first.(type) {
-		case []byte:
-			// Concatenate all byte chunks
-			var result []byte
-			for _, chunk := range chunks {
-				if bytes, ok := chunk.([]byte); ok {
-					result = append(result, bytes...)
-				} else {
-					return nil, fmt.Errorf("mixed chunk types")
-				}
+	}
+	switch chunks[0].(type) {
+	case []byte:
+		var result []byte
+		for _, chunk := range chunks {
+			if b, ok := chunk.([]byte); ok {
+				result = append(result, b...)
+			} else {
+				return nil, fmt.Errorf("mixed chunk types")
 			}
-			return result, nil
-		case string:
-			// Concatenate all string chunks
-			var result string
-			for _, chunk := range chunks {
-				if str, ok := chunk.(string); ok {
-					result += str
-				} else {
-					return nil, fmt.Errorf("mixed chunk types")
-				}
-			}
-			return result, nil
-		default:
-			// For other types (Integer, Array elements), collect as array
-			return chunks, nil
 		}
+		return result, nil
+	case string:
+		var result string
+		for _, chunk := range chunks {
+			if s, ok := chunk.(string); ok {
+				result += s
+			} else {
+				return nil, fmt.Errorf("mixed chunk types")
+			}
+		}
+		return result, nil
+	default:
+		return chunks, nil
 	}
 }
 
-// cborValueToBytes converts a CBOR value to bytes for handlers expecting bytes
+// collectInputBytes collects all input frames from the request and returns raw bytes.
+func collectInputBytes(req *bifaci.Request) ([]byte, error) {
+	cborValue := collectPayload(req.Frames())
+	return cborValueToBytes(cborValue)
+}
+
+// collectJSON collects all input frames and parses as a valueRequest.
+func collectJSON(req *bifaci.Request) (valueRequest, error) {
+	payload := collectPayload(req.Frames())
+	return parseValueRequest(payload)
+}
+
+// cborValueToBytes converts a CBOR value to bytes.
 func cborValueToBytes(value interface{}) ([]byte, error) {
 	switch v := value.(type) {
 	case []byte:
@@ -150,20 +150,50 @@ func cborValueToBytes(value interface{}) ([]byte, error) {
 	}
 }
 
-// cborMapToJSON converts a CBOR map to JSON bytes
-func cborMapToJSON(value interface{}) ([]byte, error) {
-	// The value is already a Go map/interface{} from CBOR decoding
-	// Just marshal it as JSON
-	return json.Marshal(value)
+// valueRequest is the JSON structure for number/string payloads.
+type valueRequest struct {
+	Value json.RawMessage `json:"value"`
 }
+
+func parseValueRequest(cborValue interface{}) (valueRequest, error) {
+	var req valueRequest
+	switch v := cborValue.(type) {
+	case map[interface{}]interface{}:
+		if val, ok := v["value"]; ok {
+			valueBytes, err := json.Marshal(val)
+			if err != nil {
+				return req, fmt.Errorf("failed to marshal value: %w", err)
+			}
+			req.Value = json.RawMessage(valueBytes)
+			return req, nil
+		}
+		return req, fmt.Errorf("missing 'value' field in map")
+	case []byte:
+		if err := json.Unmarshal(v, &req); err != nil {
+			return req, fmt.Errorf("invalid JSON: %w", err)
+		}
+		return req, nil
+	case string:
+		if err := json.Unmarshal([]byte(v), &req); err != nil {
+			return req, fmt.Errorf("invalid JSON: %w", err)
+		}
+		return req, nil
+	default:
+		return req, fmt.Errorf("expected map or []byte, got %T", cborValue)
+	}
+}
+
+// =============================================================================
+// Manifest
+// =============================================================================
 
 func buildManifest() *bifaci.CapManifest {
 	mustBuild := func(b *urn.CapUrnBuilder) *urn.CapUrn {
-		urn, err := b.Build()
+		u, err := b.Build()
 		if err != nil {
 			panic(fmt.Sprintf("failed to build cap URN: %v", err))
 		}
-		return urn
+		return u
 	}
 
 	caps := []cap.Cap{
@@ -319,221 +349,181 @@ func buildManifest() *bifaci.CapManifest {
 	)
 }
 
-// valueRequest is the JSON structure for number/string payloads
-type valueRequest struct {
-	Value json.RawMessage `json:"value"`
-}
+// =============================================================================
+// Op Implementations
+// =============================================================================
 
-func parseValueRequest(cborValue interface{}) (valueRequest, error) {
-	var req valueRequest
+// === STREAMING OPS (no accumulation) ===
 
-	// cborValue might be a map (CBOR Map) or []byte (CBOR Bytes with JSON)
-	switch v := cborValue.(type) {
-	case map[interface{}]interface{}:
-		// CBOR Map - extract "value" field and marshal to JSON
-		if val, ok := v["value"]; ok {
-			// Marshal the value to JSON bytes
-			valueBytes, err := json.Marshal(val)
-			if err != nil {
-				return req, fmt.Errorf("failed to marshal value: %w", err)
-			}
-			req.Value = json.RawMessage(valueBytes)
-			return req, nil
-		}
-		return req, fmt.Errorf("missing 'value' field in map")
-	case []byte:
-		// JSON bytes - unmarshal
-		if err := json.Unmarshal(v, &req); err != nil {
-			return req, fmt.Errorf("invalid JSON: %w", err)
-		}
-		return req, nil
-	case string:
-		// JSON string - unmarshal
-		if err := json.Unmarshal([]byte(v), &req); err != nil {
-			return req, fmt.Errorf("invalid JSON: %w", err)
-		}
-		return req, nil
-	default:
-		return req, fmt.Errorf("expected map or []byte, got %T", cborValue)
-	}
-}
+type EchoOp struct{}
 
-func handleEcho(frames <-chan bifaci.Frame, emitter bifaci.StreamEmitter, peer bifaci.PeerInvoker) error {
-	cborValue := collectPayload(frames)
+func (op *EchoOp) Perform(req *bifaci.Request) error {
+	cborValue := collectPayload(req.Frames())
 	payloadBytes, err := cborValueToBytes(cborValue)
 	if err != nil {
 		return err
 	}
-	emitter.EmitCbor(payloadBytes)
-	return nil
+	return req.Output().EmitCbor(payloadBytes)
 }
 
-func handleDouble(frames <-chan bifaci.Frame, emitter bifaci.StreamEmitter, peer bifaci.PeerInvoker) error {
-	payload := collectPayload(frames)
-	req, err := parseValueRequest(payload)
+type BinaryEchoOp struct{}
+
+func (op *BinaryEchoOp) Perform(req *bifaci.Request) error {
+	cborValue := collectPayload(req.Frames())
+	payloadBytes, err := cborValueToBytes(cborValue)
 	if err != nil {
 		return err
 	}
+	return req.Output().EmitCbor(payloadBytes)
+}
 
+type PeerEchoOp struct{}
+
+func (op *PeerEchoOp) Perform(req *bifaci.Request) error {
+	cborValue := collectPayload(req.Frames())
+	payloadBytes, err := cborValueToBytes(cborValue)
+	if err != nil {
+		return err
+	}
+	args := []cap.CapArgumentValue{
+		cap.NewCapArgumentValue("media:customer-message;textable;form=scalar", payloadBytes),
+	}
+	peerFrames, err := req.Peer().Invoke("cap:in=media:;out=media:", args)
+	if err != nil {
+		return fmt.Errorf("peer invoke failed: %w", err)
+	}
+	cborValue, err = collectPeerResponse(peerFrames)
+	if err != nil {
+		return err
+	}
+	return req.Output().EmitCbor(cborValue)
+}
+
+// === ACCUMULATING OPS ===
+
+type DoubleOp struct{}
+
+func (op *DoubleOp) Perform(req *bifaci.Request) error {
+	fmt.Fprintln(os.Stderr, "[double] Handler starting")
+	r, err := collectJSON(req)
+	if err != nil {
+		return err
+	}
 	var value uint64
-	if err := json.Unmarshal(req.Value, &value); err != nil {
+	if err := json.Unmarshal(r.Value, &value); err != nil {
 		return fmt.Errorf("expected number: %w", err)
 	}
-
 	result := value * 2
-	// Emit as CBOR integer directly (mirrors Rust: output.emit_cbor(&ciborium::Value::Integer(result.into())))
-	emitter.EmitCbor(result)
+	fmt.Fprintf(os.Stderr, "[double] Parsed value: %d, doubling to: %d\n", value, result)
+	if err := req.Output().EmitCbor(result); err != nil {
+		return err
+	}
+	fmt.Fprintln(os.Stderr, "[double] Handler complete")
 	return nil
 }
 
-func handleStreamChunks(frames <-chan bifaci.Frame, emitter bifaci.StreamEmitter, peer bifaci.PeerInvoker) error {
-	payload := collectPayload(frames)
-	req, err := parseValueRequest(payload)
+type StreamChunksOp struct{}
+
+func (op *StreamChunksOp) Perform(req *bifaci.Request) error {
+	r, err := collectJSON(req)
 	if err != nil {
 		return err
 	}
-
 	var count uint64
-	if err := json.Unmarshal(req.Value, &count); err != nil {
+	if err := json.Unmarshal(r.Value, &count); err != nil {
 		return fmt.Errorf("expected number: %w", err)
 	}
-
 	for i := uint64(0); i < count; i++ {
 		chunk := fmt.Sprintf("chunk-%d", i)
-		emitter.EmitCbor([]byte(chunk))
+		if err := req.Output().EmitCbor([]byte(chunk)); err != nil {
+			return err
+		}
 	}
-
-	emitter.EmitCbor([]byte("done"))
-	return nil
+	return req.Output().EmitCbor([]byte("done"))
 }
 
-func handleBinaryEcho(frames <-chan bifaci.Frame, emitter bifaci.StreamEmitter, peer bifaci.PeerInvoker) error {
-	cborValue := collectPayload(frames)
-	payloadBytes, err := cborValueToBytes(cborValue)
+type SlowResponseOp struct{}
+
+func (op *SlowResponseOp) Perform(req *bifaci.Request) error {
+	r, err := collectJSON(req)
 	if err != nil {
 		return err
 	}
-	emitter.EmitCbor(payloadBytes)
-	return nil
-}
-
-func handleSlowResponse(frames <-chan bifaci.Frame, emitter bifaci.StreamEmitter, peer bifaci.PeerInvoker) error {
-	payload := collectPayload(frames)
-	req, err := parseValueRequest(payload)
-	if err != nil {
-		return err
-	}
-
 	var sleepMs uint64
-	if err := json.Unmarshal(req.Value, &sleepMs); err != nil {
+	if err := json.Unmarshal(r.Value, &sleepMs); err != nil {
 		return fmt.Errorf("expected number: %w", err)
 	}
-
 	time.Sleep(time.Duration(sleepMs) * time.Millisecond)
-
 	response := fmt.Sprintf("slept-%dms", sleepMs)
-	emitter.EmitCbor([]byte(response))
-	return nil
+	return req.Output().EmitCbor([]byte(response))
 }
 
-func handleGenerateLarge(frames <-chan bifaci.Frame, emitter bifaci.StreamEmitter, peer bifaci.PeerInvoker) error {
-	payload := collectPayload(frames)
-	req, err := parseValueRequest(payload)
+type GenerateLargeOp struct{}
+
+func (op *GenerateLargeOp) Perform(req *bifaci.Request) error {
+	r, err := collectJSON(req)
 	if err != nil {
 		return err
 	}
-
 	var size uint64
-	if err := json.Unmarshal(req.Value, &size); err != nil {
+	if err := json.Unmarshal(r.Value, &size); err != nil {
 		return fmt.Errorf("expected number: %w", err)
 	}
-
 	pattern := []byte("ABCDEFGH")
 	result := make([]byte, size)
 	for i := uint64(0); i < size; i++ {
 		result[i] = pattern[i%uint64(len(pattern))]
 	}
-
-	emitter.EmitCbor(result)
-	return nil
+	return req.Output().EmitCbor(result)
 }
 
-func handleWithStatus(frames <-chan bifaci.Frame, emitter bifaci.StreamEmitter, peer bifaci.PeerInvoker) error {
-	payload := collectPayload(frames)
-	req, err := parseValueRequest(payload)
+type WithStatusOp struct{}
+
+func (op *WithStatusOp) Perform(req *bifaci.Request) error {
+	r, err := collectJSON(req)
 	if err != nil {
 		return err
 	}
-
 	var steps uint64
-	if err := json.Unmarshal(req.Value, &steps); err != nil {
+	if err := json.Unmarshal(r.Value, &steps); err != nil {
 		return fmt.Errorf("expected number: %w", err)
 	}
-
 	for i := uint64(0); i < steps; i++ {
 		status := fmt.Sprintf("step %d", i)
-		emitter.EmitLog("processing", status)
+		req.Output().EmitLog("processing", status)
 		time.Sleep(10 * time.Millisecond)
 	}
-
-	emitter.EmitCbor([]byte("completed"))
-	return nil
+	return req.Output().EmitCbor([]byte("completed"))
 }
 
-func handleThrowError(frames <-chan bifaci.Frame, emitter bifaci.StreamEmitter, peer bifaci.PeerInvoker) error {
-	payload := collectPayload(frames)
-	req, err := parseValueRequest(payload)
+type ThrowErrorOp struct{}
+
+func (op *ThrowErrorOp) Perform(req *bifaci.Request) error {
+	r, err := collectJSON(req)
 	if err != nil {
 		return err
 	}
-
 	var message string
-	if err := json.Unmarshal(req.Value, &message); err != nil {
+	if err := json.Unmarshal(r.Value, &message); err != nil {
 		return fmt.Errorf("expected string: %w", err)
 	}
-
 	return fmt.Errorf("%s", message)
 }
 
-func handlePeerEcho(frames <-chan bifaci.Frame, emitter bifaci.StreamEmitter, peer bifaci.PeerInvoker) error {
-	cborValue := collectPayload(frames)
-	payloadBytes, err := cborValueToBytes(cborValue)
+type NestedCallOp struct{}
+
+func (op *NestedCallOp) Perform(req *bifaci.Request) error {
+	fmt.Fprintln(os.Stderr, "[nested_call] Starting handler")
+	r, err := collectJSON(req)
 	if err != nil {
 		return err
 	}
-	// Call host's echo capability with semantic URN
-	args := []cap.CapArgumentValue{
-		cap.NewCapArgumentValue("media:customer-message;textable;form=scalar", payloadBytes),
-	}
-
-	peerFrames, err := peer.Invoke("cap:in=media:;out=media:", args)
-	if err != nil {
-		return fmt.Errorf("peer invoke failed: %w", err)
-	}
-
-	// Collect and decode peer response
-	cborValue, err2 := collectPeerResponse(peerFrames)
-	if err2 != nil {
-		return err2
-	}
-
-	// Re-emit (consumption → production)
-	return emitter.EmitCbor(cborValue)
-}
-
-func handleNestedCall(frames <-chan bifaci.Frame, emitter bifaci.StreamEmitter, peer bifaci.PeerInvoker) error {
-	payload := collectPayload(frames)
-	req, err := parseValueRequest(payload)
-	if err != nil {
-		return err
-	}
-
 	var value uint64
-	if err := json.Unmarshal(req.Value, &value); err != nil {
+	if err := json.Unmarshal(r.Value, &value); err != nil {
 		return fmt.Errorf("expected number: %w", err)
 	}
+	fmt.Fprintf(os.Stderr, "[nested_call] Parsed value: %d\n", value)
 
-	// Call host's double capability — use exact URN (mirrors Rust)
 	input, err := json.Marshal(map[string]uint64{"value": value})
 	if err != nil {
 		return err
@@ -542,18 +532,21 @@ func handleNestedCall(frames <-chan bifaci.Frame, emitter bifaci.StreamEmitter, 
 		cap.NewCapArgumentValue("media:order-value;json;textable;form=map", input),
 	}
 
-	peerFrames, err := peer.Invoke(`cap:in="media:order-value;json;textable;form=map";op=double;out="media:loyalty-points;integer;textable;numeric;form=scalar"`, args)
+	fmt.Fprintln(os.Stderr, "[nested_call] Calling peer double")
+	peerFrames, err := req.Peer().Invoke(
+		`cap:in="media:order-value;json;textable;form=map";op=double;out="media:loyalty-points;integer;textable;numeric;form=scalar"`,
+		args,
+	)
 	if err != nil {
 		return fmt.Errorf("peer invoke failed: %w", err)
 	}
 
-	// Collect and decode peer response
 	cborValue, err := collectPeerResponse(peerFrames)
 	if err != nil {
 		return err
 	}
+	fmt.Fprintf(os.Stderr, "[nested_call] Peer response: %v\n", cborValue)
 
-	// Extract integer from response (mirrors Rust: ciborium::Value::Integer branch)
 	var hostResult uint64
 	switch v := cborValue.(type) {
 	case uint64:
@@ -566,163 +559,142 @@ func handleNestedCall(frames <-chan bifaci.Frame, emitter bifaci.StreamEmitter, 
 		return fmt.Errorf("expected integer from double, got %T", v)
 	}
 
-	// Double again locally
 	finalResult := hostResult * 2
+	fmt.Fprintf(os.Stderr, "[nested_call] Final result: %d\n", finalResult)
 
 	finalBytes, err := json.Marshal(finalResult)
 	if err != nil {
 		return err
 	}
-
-	emitter.EmitCbor(finalBytes)
-	return nil
+	return req.Output().EmitCbor(finalBytes)
 }
 
-func handleHeartbeatStress(frames <-chan bifaci.Frame, emitter bifaci.StreamEmitter, peer bifaci.PeerInvoker) error {
-	payload := collectPayload(frames)
-	req, err := parseValueRequest(payload)
+type HeartbeatStressOp struct{}
+
+func (op *HeartbeatStressOp) Perform(req *bifaci.Request) error {
+	r, err := collectJSON(req)
 	if err != nil {
 		return err
 	}
-
 	var durationMs uint64
-	if err := json.Unmarshal(req.Value, &durationMs); err != nil {
+	if err := json.Unmarshal(r.Value, &durationMs); err != nil {
 		return fmt.Errorf("expected number: %w", err)
 	}
-
-	// Sleep in small chunks to allow heartbeat processing
 	chunks := durationMs / 100
 	for i := uint64(0); i < chunks; i++ {
 		time.Sleep(100 * time.Millisecond)
 	}
 	time.Sleep(time.Duration(durationMs%100) * time.Millisecond)
-
 	response := fmt.Sprintf("stressed-%dms", durationMs)
-	emitter.EmitCbor([]byte(response))
-	return nil
+	return req.Output().EmitCbor([]byte(response))
 }
 
-func handleConcurrentStress(frames <-chan bifaci.Frame, emitter bifaci.StreamEmitter, peer bifaci.PeerInvoker) error {
-	payload := collectPayload(frames)
-	req, err := parseValueRequest(payload)
+type ConcurrentStressOp struct{}
+
+func (op *ConcurrentStressOp) Perform(req *bifaci.Request) error {
+	r, err := collectJSON(req)
 	if err != nil {
 		return err
 	}
-
 	var workUnits uint64
-	if err := json.Unmarshal(req.Value, &workUnits); err != nil {
+	if err := json.Unmarshal(r.Value, &workUnits); err != nil {
 		return fmt.Errorf("expected number: %w", err)
 	}
-
-	// Simulate work
 	var sum uint64
 	for i := uint64(0); i < workUnits*1000; i++ {
 		sum += i
 	}
-
 	response := fmt.Sprintf("computed-%d", sum)
-	emitter.EmitCbor([]byte(response))
-	return nil
+	return req.Output().EmitCbor([]byte(response))
 }
 
-func handleGetManifest(frames <-chan bifaci.Frame, emitter bifaci.StreamEmitter, peer bifaci.PeerInvoker) error {
-	_ = collectPayload(frames) // Consume frames even if empty
+type GetManifestOp struct{}
+
+func (op *GetManifestOp) Perform(req *bifaci.Request) error {
+	_ = collectPayload(req.Frames()) // consume frames even if empty
 	manifest := buildManifest()
 	manifestBytes, err := json.Marshal(manifest)
 	if err != nil {
 		return err
 	}
-
-	emitter.EmitCbor(manifestBytes)
-	return nil
+	return req.Output().EmitCbor(manifestBytes)
 }
 
-func handleProcessLarge(frames <-chan bifaci.Frame, emitter bifaci.StreamEmitter, peer bifaci.PeerInvoker) error {
-	cborValue := collectPayload(frames)
-	payload, err := cborValueToBytes(cborValue)
+type ProcessLargeOp struct{}
+
+func (op *ProcessLargeOp) Perform(req *bifaci.Request) error {
+	payload, err := collectInputBytes(req)
 	if err != nil {
 		return err
 	}
-	// Calculate size and checksum
-	size := len(payload)
 	hash := sha256.Sum256(payload)
 	checksum := hex.EncodeToString(hash[:])
-
 	result := map[string]interface{}{
-		"size":     size,
+		"size":     len(payload),
 		"checksum": checksum,
 	}
-
 	resultBytes, err := json.Marshal(result)
 	if err != nil {
 		return err
 	}
-
-	emitter.EmitCbor(resultBytes)
-	return nil
+	return req.Output().EmitCbor(resultBytes)
 }
 
-func handleHashIncoming(frames <-chan bifaci.Frame, emitter bifaci.StreamEmitter, peer bifaci.PeerInvoker) error {
-	cborValue := collectPayload(frames)
-	payload, err := cborValueToBytes(cborValue)
+type HashIncomingOp struct{}
+
+func (op *HashIncomingOp) Perform(req *bifaci.Request) error {
+	payload, err := collectInputBytes(req)
 	if err != nil {
 		return err
 	}
-	// Calculate SHA256 hash
 	hash := sha256.Sum256(payload)
 	hexHash := hex.EncodeToString(hash[:])
-
-	emitter.EmitCbor([]byte(hexHash))
-	return nil
+	return req.Output().EmitCbor([]byte(hexHash))
 }
 
-func handleVerifyBinary(frames <-chan bifaci.Frame, emitter bifaci.StreamEmitter, peer bifaci.PeerInvoker) error {
-	cborValue := collectPayload(frames)
-	payload, err := cborValueToBytes(cborValue)
+type VerifyBinaryOp struct{}
+
+func (op *VerifyBinaryOp) Perform(req *bifaci.Request) error {
+	payload, err := collectInputBytes(req)
 	if err != nil {
 		return err
 	}
-	// Check if all 256 byte values (0x00-0xFF) are present
 	present := make(map[byte]bool)
 	for _, b := range payload {
 		present[b] = true
 	}
-
 	var message string
 	if len(present) != 256 {
 		message = fmt.Sprintf("missing %d byte values", 256-len(present))
 	} else {
 		message = "ok"
 	}
-
-	emitter.EmitCbor([]byte(message))
-	return nil
+	return req.Output().EmitCbor([]byte(message))
 }
 
-func handleReadFileInfo(frames <-chan bifaci.Frame, emitter bifaci.StreamEmitter, peer bifaci.PeerInvoker) error {
-	cborValue := collectPayload(frames)
-	payload, err := cborValueToBytes(cborValue)
+type ReadFileInfoOp struct{}
+
+func (op *ReadFileInfoOp) Perform(req *bifaci.Request) error {
+	payload, err := collectInputBytes(req)
 	if err != nil {
 		return err
 	}
-	// Payload is already file bytes (auto-converted by runtime from file-path)
-	size := len(payload)
 	hash := sha256.Sum256(payload)
 	checksum := hex.EncodeToString(hash[:])
-
 	result := map[string]interface{}{
-		"size":     size,
+		"size":     len(payload),
 		"checksum": checksum,
 	}
-
 	resultBytes, err := json.Marshal(result)
 	if err != nil {
 		return err
 	}
-
-	emitter.EmitCbor(resultBytes)
-	return nil
+	return req.Output().EmitCbor(resultBytes)
 }
+
+// =============================================================================
+// Main
+// =============================================================================
 
 func main() {
 	manifest := buildManifest()
@@ -731,25 +703,24 @@ func main() {
 		panic(fmt.Sprintf("failed to create plugin runtime: %v", err))
 	}
 
-	// Register handlers with exact URNs matching the manifest (mirrors Rust plugin)
-	// Identity handler is auto-registered by runtime
-	runtime.Register(`cap:in="media:bytes";op=echo;out="media:bytes"`, handleEcho)
-	runtime.Register(`cap:in="media:order-value;json;textable;form=map";op=double;out="media:loyalty-points;integer;textable;numeric;form=scalar"`, handleDouble)
-	runtime.Register(`cap:in="media:update-count;json;textable;form=map";op=stream_chunks;out="media:order-updates;textable"`, handleStreamChunks)
-	runtime.Register(`cap:in="media:product-image;bytes";op=binary_echo;out="media:product-image;bytes"`, handleBinaryEcho)
-	runtime.Register(`cap:in="media:payment-delay-ms;json;textable;form=map";op=slow_response;out="media:payment-result;textable;form=scalar"`, handleSlowResponse)
-	runtime.Register(`cap:in="media:report-size;json;textable;form=map";op=generate_large;out="media:sales-report;bytes"`, handleGenerateLarge)
-	runtime.Register(`cap:in="media:fulfillment-steps;json;textable;form=map";op=with_status;out="media:fulfillment-status;textable;form=scalar"`, handleWithStatus)
-	runtime.Register(`cap:in="media:payment-error;json;textable;form=map";op=throw_error;out=media:void`, handleThrowError)
-	runtime.Register(`cap:in="media:customer-message;textable;form=scalar";op=peer_echo;out="media:customer-message;textable;form=scalar"`, handlePeerEcho)
-	runtime.Register(`cap:in="media:order-value;json;textable;form=map";op=nested_call;out="media:final-price;integer;textable;numeric;form=scalar"`, handleNestedCall)
-	runtime.Register(`cap:in="media:monitoring-duration-ms;json;textable;form=map";op=heartbeat_stress;out="media:health-status;textable;form=scalar"`, handleHeartbeatStress)
-	runtime.Register(`cap:in="media:order-batch-size;json;textable;form=map";op=concurrent_stress;out="media:batch-result;textable;form=scalar"`, handleConcurrentStress)
-	runtime.Register(`cap:in=media:void;op=get_manifest;out="media:service-capabilities;json;textable;form=map"`, handleGetManifest)
-	runtime.Register(`cap:in="media:uploaded-document;bytes";op=process_large;out="media:document-info;json;textable;form=map"`, handleProcessLarge)
-	runtime.Register(`cap:in="media:uploaded-document;bytes";op=hash_incoming;out="media:document-hash;textable;form=scalar"`, handleHashIncoming)
-	runtime.Register(`cap:in="media:package-data;bytes";op=verify_binary;out="media:verification-status;textable;form=scalar"`, handleVerifyBinary)
-	runtime.Register(`cap:in="media:invoice;file-path;textable;form=scalar";op=read_file_info;out="media:invoice-metadata;json;textable;form=map"`, handleReadFileInfo)
+	// Register all handlers as CapOp types (mirrors Rust register_op_type::<T>())
+	runtime.RegisterOp(`cap:in="media:bytes";op=echo;out="media:bytes"`, &EchoOp{})
+	runtime.RegisterOp(`cap:in="media:order-value;json;textable;form=map";op=double;out="media:loyalty-points;integer;textable;numeric;form=scalar"`, &DoubleOp{})
+	runtime.RegisterOp(`cap:in="media:update-count;json;textable;form=map";op=stream_chunks;out="media:order-updates;textable"`, &StreamChunksOp{})
+	runtime.RegisterOp(`cap:in="media:product-image;bytes";op=binary_echo;out="media:product-image;bytes"`, &BinaryEchoOp{})
+	runtime.RegisterOp(`cap:in="media:payment-delay-ms;json;textable;form=map";op=slow_response;out="media:payment-result;textable;form=scalar"`, &SlowResponseOp{})
+	runtime.RegisterOp(`cap:in="media:report-size;json;textable;form=map";op=generate_large;out="media:sales-report;bytes"`, &GenerateLargeOp{})
+	runtime.RegisterOp(`cap:in="media:fulfillment-steps;json;textable;form=map";op=with_status;out="media:fulfillment-status;textable;form=scalar"`, &WithStatusOp{})
+	runtime.RegisterOp(`cap:in="media:payment-error;json;textable;form=map";op=throw_error;out=media:void`, &ThrowErrorOp{})
+	runtime.RegisterOp(`cap:in="media:customer-message;textable;form=scalar";op=peer_echo;out="media:customer-message;textable;form=scalar"`, &PeerEchoOp{})
+	runtime.RegisterOp(`cap:in="media:order-value;json;textable;form=map";op=nested_call;out="media:final-price;integer;textable;numeric;form=scalar"`, &NestedCallOp{})
+	runtime.RegisterOp(`cap:in="media:monitoring-duration-ms;json;textable;form=map";op=heartbeat_stress;out="media:health-status;textable;form=scalar"`, &HeartbeatStressOp{})
+	runtime.RegisterOp(`cap:in="media:order-batch-size;json;textable;form=map";op=concurrent_stress;out="media:batch-result;textable;form=scalar"`, &ConcurrentStressOp{})
+	runtime.RegisterOp(`cap:in=media:void;op=get_manifest;out="media:service-capabilities;json;textable;form=map"`, &GetManifestOp{})
+	runtime.RegisterOp(`cap:in="media:uploaded-document;bytes";op=process_large;out="media:document-info;json;textable;form=map"`, &ProcessLargeOp{})
+	runtime.RegisterOp(`cap:in="media:uploaded-document;bytes";op=hash_incoming;out="media:document-hash;textable;form=scalar"`, &HashIncomingOp{})
+	runtime.RegisterOp(`cap:in="media:package-data;bytes";op=verify_binary;out="media:verification-status;textable;form=scalar"`, &VerifyBinaryOp{})
+	runtime.RegisterOp(`cap:in="media:invoice;file-path;textable;form=scalar";op=read_file_info;out="media:invoice-metadata;json;textable;form=map"`, &ReadFileInfoOp{})
 
 	if err := runtime.Run(); err != nil {
 		panic(fmt.Sprintf("plugin runtime error: %v", err))
