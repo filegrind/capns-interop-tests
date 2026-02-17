@@ -2,6 +2,7 @@ import Foundation
 import SwiftCBOR
 import Bifaci
 import CryptoKit
+import Ops
 
 // Type aliases to avoid ambiguity with Foundation.OutputStream
 typealias BifaciOutputStream = Bifaci.OutputStream
@@ -217,235 +218,318 @@ func parseJSONInput(_ value: CBOR) throws -> [String: Any] {
     return try JSONSerialization.jsonObject(with: jsonData) as! [String: Any]
 }
 
-// MARK: - Handlers
+// MARK: - Op Implementations
 
-func handleEcho(input: InputPackage, output: BifaciOutputStream, peer: PeerInvoker) throws {
-    let payload = try input.collectAllBytes()
-    try output.write(payload)
-    try output.close()
-}
+// === STREAMING OPS (no accumulation) ===
 
-func handleDouble(input: InputPackage, output: BifaciOutputStream, peer: PeerInvoker) throws {
-    let value = try firstValue(from: input)
-    let json = try parseJSONInput(value)
-    let inputValue = json["value"] as! Int
-    let result = inputValue * 2
-    try output.emitCbor(CBOR.unsignedInt(UInt64(result)))
-    try output.close()
-}
-
-func handleStreamChunks(input: InputPackage, output: BifaciOutputStream, peer: PeerInvoker) throws {
-    let value = try firstValue(from: input)
-    let json = try parseJSONInput(value)
-    let count = json["value"] as! Int
-
-    for i in 0..<count {
-        let chunk = "chunk-\(i)".data(using: .utf8)!
-        try output.emitCbor(CBOR.byteString([UInt8](chunk)))
+struct EchoOp: Op, Sendable {
+    typealias Output = Void
+    func perform(dry: DryContext, wet: WetContext) async throws {
+        let req = try wet.getRequired(CborRequest.self, for: WET_KEY_REQUEST)
+        let input = try req.takeInput()
+        let payload = try input.collectAllBytes()
+        try req.output().write(payload)
     }
-
-    try output.emitCbor(CBOR.byteString([UInt8]("done".data(using: .utf8)!)))
-    try output.close()
+    func metadata() -> OpMetadata { OpMetadata.builder("EchoOp").build() }
 }
 
-func handleBinaryEcho(input: InputPackage, output: BifaciOutputStream, peer: PeerInvoker) throws {
-    let payload = try input.collectAllBytes()
-    try output.write(payload)
-    try output.close()
-}
-
-func handleSlowResponse(input: InputPackage, output: BifaciOutputStream, peer: PeerInvoker) throws {
-    let value = try firstValue(from: input)
-    let json = try parseJSONInput(value)
-    let sleepMs = json["value"] as! Int
-
-    Thread.sleep(forTimeInterval: Double(sleepMs) / 1000.0)
-
-    let response = "slept-\(sleepMs)ms"
-    try output.emitCbor(CBOR.byteString([UInt8](response.data(using: .utf8)!)))
-    try output.close()
-}
-
-func handleGenerateLarge(input: InputPackage, output: BifaciOutputStream, peer: PeerInvoker) throws {
-    let value = try firstValue(from: input)
-    let json = try parseJSONInput(value)
-    let size = json["value"] as! Int
-
-    let pattern: [UInt8] = [65, 66, 67, 68, 69, 70, 71, 72] // "ABCDEFGH"
-    var result = Data(capacity: size)
-    for i in 0..<size {
-        result.append(pattern[i % pattern.count])
+struct BinaryEchoOp: Op, Sendable {
+    typealias Output = Void
+    func perform(dry: DryContext, wet: WetContext) async throws {
+        let req = try wet.getRequired(CborRequest.self, for: WET_KEY_REQUEST)
+        let input = try req.takeInput()
+        let payload = try input.collectAllBytes()
+        try req.output().write(payload)
     }
-
-    try output.write(result)
-    try output.close()
+    func metadata() -> OpMetadata { OpMetadata.builder("BinaryEchoOp").build() }
 }
 
-func handleWithStatus(input: InputPackage, output: BifaciOutputStream, peer: PeerInvoker) throws {
-    let value = try firstValue(from: input)
-    let json = try parseJSONInput(value)
-    let steps = json["value"] as! Int
+struct PeerEchoOp: Op, Sendable {
+    typealias Output = Void
+    func perform(dry: DryContext, wet: WetContext) async throws {
+        let req = try wet.getRequired(CborRequest.self, for: WET_KEY_REQUEST)
+        let input = try req.takeInput()
+        let payload = try input.collectAllBytes()
 
-    for i in 0..<steps {
-        let status = "step \(i)"
-        output.log(level: "info", message: "processing: \(status)")
-        Thread.sleep(forTimeInterval: 0.01) // 10ms
+        // Call host's echo capability
+        let call = try req.peer().call(capUrn: "cap:in=media:;out=media:")
+        let arg = call.arg(mediaUrn: "media:customer-message;textable;form=scalar")
+        try arg.write(payload)
+        try arg.close()
+
+        let response = try call.finish()
+        let responseBytes = try response.collectBytes()
+        try req.output().write(responseBytes)
     }
-
-    try output.emitCbor(CBOR.byteString([UInt8]("completed".data(using: .utf8)!)))
-    try output.close()
+    func metadata() -> OpMetadata { OpMetadata.builder("PeerEchoOp").build() }
 }
 
-func handleThrowError(input: InputPackage, output: BifaciOutputStream, peer: PeerInvoker) throws {
-    let value = try firstValue(from: input)
-    let json = try parseJSONInput(value)
-    let message = json["value"] as! String
-    throw NSError(domain: "InteropTestError", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
-}
+// === ACCUMULATING OPS ===
 
-func handlePeerEcho(input: InputPackage, output: BifaciOutputStream, peer: PeerInvoker) throws {
-    let payload = try input.collectAllBytes()
-
-    // Call host's echo capability
-    let call = try peer.call(capUrn: "cap:in=media:;out=media:")
-    let arg = call.arg(mediaUrn: "media:customer-message;textable;form=scalar")
-    try arg.write(payload)
-    try arg.close()
-
-    let response = try call.finish()
-    let responseBytes = try response.collectBytes()
-
-    try output.write(responseBytes)
-    try output.close()
-}
-
-func handleNestedCall(input: InputPackage, output: BifaciOutputStream, peer: PeerInvoker) throws {
-    let value = try firstValue(from: input)
-    let json = try parseJSONInput(value)
-    let inputValue = json["value"] as! Int
-
-    // Call host's double capability
-    let inputData = try JSONSerialization.data(withJSONObject: ["value": inputValue])
-    let call = try peer.call(capUrn: "cap:in=*;op=double;out=*")
-    let arg = call.arg(mediaUrn: "media:order-value;json;textable;form=map")
-    try arg.write(inputData)
-    try arg.close()
-
-    let response = try call.finish()
-    let responseCbor = try response.collectValue()
-
-    // Extract integer from response
-    let hostResult: Int
-    switch responseCbor {
-    case .unsignedInt(let val):
-        hostResult = Int(val)
-    case .negativeInt(let val):
-        hostResult = -Int(val) - 1
-    default:
-        throw PluginRuntimeError.handlerError("Expected integer from double")
+struct DoubleOp: Op, Sendable {
+    typealias Output = Void
+    func perform(dry: DryContext, wet: WetContext) async throws {
+        let req = try wet.getRequired(CborRequest.self, for: WET_KEY_REQUEST)
+        let input = try req.takeInput()
+        let value = try firstValue(from: input)
+        let json = try parseJSONInput(value)
+        let inputValue = json["value"] as! Int
+        let result = inputValue * 2
+        try req.output().emitCbor(CBOR.unsignedInt(UInt64(result)))
     }
-
-    // Double again locally
-    let finalResult = hostResult * 2
-
-    let finalData = try JSONSerialization.data(withJSONObject: finalResult, options: .fragmentsAllowed)
-    try output.write(finalData)
-    try output.close()
+    func metadata() -> OpMetadata { OpMetadata.builder("DoubleOp").build() }
 }
 
-func handleHeartbeatStress(input: InputPackage, output: BifaciOutputStream, peer: PeerInvoker) throws {
-    let value = try firstValue(from: input)
-    let json = try parseJSONInput(value)
-    let durationMs = json["value"] as! Int
+struct StreamChunksOp: Op, Sendable {
+    typealias Output = Void
+    func perform(dry: DryContext, wet: WetContext) async throws {
+        let req = try wet.getRequired(CborRequest.self, for: WET_KEY_REQUEST)
+        let input = try req.takeInput()
+        let value = try firstValue(from: input)
+        let json = try parseJSONInput(value)
+        let count = json["value"] as! Int
 
-    Thread.sleep(forTimeInterval: Double(durationMs) / 1000.0)
-
-    let response = "stressed-\(durationMs)ms"
-    try output.emitCbor(CBOR.byteString([UInt8](response.data(using: .utf8)!)))
-    try output.close()
-}
-
-func handleConcurrentStress(input: InputPackage, output: BifaciOutputStream, peer: PeerInvoker) throws {
-    let value = try firstValue(from: input)
-    let json = try parseJSONInput(value)
-    let workUnits = json["value"] as! Int
-
-    // Simulate work
-    var sum: UInt64 = 0
-    for i in 0..<(workUnits * 1000) {
-        sum = sum &+ UInt64(i)
+        for i in 0..<count {
+            let chunk = "chunk-\(i)".data(using: .utf8)!
+            try req.output().emitCbor(CBOR.byteString([UInt8](chunk)))
+        }
+        try req.output().emitCbor(CBOR.byteString([UInt8]("done".data(using: .utf8)!)))
     }
-
-    let response = "computed-\(sum)"
-    try output.emitCbor(CBOR.byteString([UInt8](response.data(using: .utf8)!)))
-    try output.close()
+    func metadata() -> OpMetadata { OpMetadata.builder("StreamChunksOp").build() }
 }
 
-func handleGetManifest(input: InputPackage, output: BifaciOutputStream, peer: PeerInvoker) throws {
-    _ = try input.collectAllBytes() // Consume input
-    let manifest = buildManifest()
-    let resultData = try JSONSerialization.data(withJSONObject: manifest)
-    try output.write(resultData)
-    try output.close()
-}
+struct SlowResponseOp: Op, Sendable {
+    typealias Output = Void
+    func perform(dry: DryContext, wet: WetContext) async throws {
+        let req = try wet.getRequired(CborRequest.self, for: WET_KEY_REQUEST)
+        let input = try req.takeInput()
+        let value = try firstValue(from: input)
+        let json = try parseJSONInput(value)
+        let sleepMs = json["value"] as! Int
 
-func handleProcessLarge(input: InputPackage, output: BifaciOutputStream, peer: PeerInvoker) throws {
-    let payload = try input.collectAllBytes()
-    let size = payload.count
-    let hash = SHA256.hash(data: payload)
-    let checksum = hash.compactMap { String(format: "%02x", $0) }.joined()
+        try await Task.sleep(nanoseconds: UInt64(sleepMs) * 1_000_000)
 
-    let result: [String: Any] = [
-        "size": size,
-        "checksum": checksum
-    ]
-
-    let resultData = try JSONSerialization.data(withJSONObject: result)
-    try output.write(resultData)
-    try output.close()
-}
-
-func handleHashIncoming(input: InputPackage, output: BifaciOutputStream, peer: PeerInvoker) throws {
-    let payload = try input.collectAllBytes()
-    let hash = SHA256.hash(data: payload)
-    let checksum = hash.compactMap { String(format: "%02x", $0) }.joined()
-    try output.emitCbor(CBOR.byteString([UInt8](checksum.data(using: .utf8)!)))
-    try output.close()
-}
-
-func handleVerifyBinary(input: InputPackage, output: BifaciOutputStream, peer: PeerInvoker) throws {
-    let payload = try input.collectAllBytes()
-    var present = Set<UInt8>()
-
-    for byte in payload {
-        present.insert(byte)
+        let response = "slept-\(sleepMs)ms"
+        try req.output().emitCbor(CBOR.byteString([UInt8](response.data(using: .utf8)!)))
     }
-
-    if present.count == 256 {
-        try output.emitCbor(CBOR.byteString([UInt8]("ok".data(using: .utf8)!)))
-    } else {
-        let missing = (0...255).filter { !present.contains(UInt8($0)) }
-        let message = "missing \(missing.count) values"
-        try output.emitCbor(CBOR.byteString([UInt8](message.data(using: .utf8)!)))
-    }
-    try output.close()
+    func metadata() -> OpMetadata { OpMetadata.builder("SlowResponseOp").build() }
 }
 
-func handleReadFileInfo(input: InputPackage, output: BifaciOutputStream, peer: PeerInvoker) throws {
-    // Payload is already file bytes (auto-converted by runtime from file-path)
-    let payload = try input.collectAllBytes()
-    let size = payload.count
-    let hash = SHA256.hash(data: payload)
-    let checksum = hash.compactMap { String(format: "%02x", $0) }.joined()
+struct GenerateLargeOp: Op, Sendable {
+    typealias Output = Void
+    func perform(dry: DryContext, wet: WetContext) async throws {
+        let req = try wet.getRequired(CborRequest.self, for: WET_KEY_REQUEST)
+        let input = try req.takeInput()
+        let value = try firstValue(from: input)
+        let json = try parseJSONInput(value)
+        let size = json["value"] as! Int
 
-    let result: [String: Any] = [
-        "size": size,
-        "checksum": checksum
-    ]
+        let pattern: [UInt8] = [65, 66, 67, 68, 69, 70, 71, 72] // "ABCDEFGH"
+        var result = Data(capacity: size)
+        for i in 0..<size {
+            result.append(pattern[i % pattern.count])
+        }
+        try req.output().write(result)
+    }
+    func metadata() -> OpMetadata { OpMetadata.builder("GenerateLargeOp").build() }
+}
 
-    let resultData = try JSONSerialization.data(withJSONObject: result)
-    try output.write(resultData)
-    try output.close()
+struct WithStatusOp: Op, Sendable {
+    typealias Output = Void
+    func perform(dry: DryContext, wet: WetContext) async throws {
+        let req = try wet.getRequired(CborRequest.self, for: WET_KEY_REQUEST)
+        let input = try req.takeInput()
+        let value = try firstValue(from: input)
+        let json = try parseJSONInput(value)
+        let steps = json["value"] as! Int
+
+        for i in 0..<steps {
+            let status = "step \(i)"
+            req.output().log(level: "info", message: "processing: \(status)")
+            try await Task.sleep(nanoseconds: 10_000_000) // 10ms
+        }
+        try req.output().emitCbor(CBOR.byteString([UInt8]("completed".data(using: .utf8)!)))
+    }
+    func metadata() -> OpMetadata { OpMetadata.builder("WithStatusOp").build() }
+}
+
+struct ThrowErrorOp: Op, Sendable {
+    typealias Output = Void
+    func perform(dry: DryContext, wet: WetContext) async throws {
+        let req = try wet.getRequired(CborRequest.self, for: WET_KEY_REQUEST)
+        let input = try req.takeInput()
+        let value = try firstValue(from: input)
+        let json = try parseJSONInput(value)
+        let message = json["value"] as! String
+        throw NSError(domain: "InteropTestError", code: 1, userInfo: [NSLocalizedDescriptionKey: message])
+    }
+    func metadata() -> OpMetadata { OpMetadata.builder("ThrowErrorOp").build() }
+}
+
+struct NestedCallOp: Op, Sendable {
+    typealias Output = Void
+    func perform(dry: DryContext, wet: WetContext) async throws {
+        let req = try wet.getRequired(CborRequest.self, for: WET_KEY_REQUEST)
+        let input = try req.takeInput()
+        let value = try firstValue(from: input)
+        let json = try parseJSONInput(value)
+        let inputValue = json["value"] as! Int
+
+        // Call host's double capability
+        let inputData = try JSONSerialization.data(withJSONObject: ["value": inputValue])
+        let call = try req.peer().call(capUrn: "cap:in=*;op=double;out=*")
+        let arg = call.arg(mediaUrn: "media:order-value;json;textable;form=map")
+        try arg.write(inputData)
+        try arg.close()
+
+        let response = try call.finish()
+        let responseCbor = try response.collectValue()
+
+        // Extract integer from response
+        let hostResult: Int
+        switch responseCbor {
+        case .unsignedInt(let val):
+            hostResult = Int(val)
+        case .negativeInt(let val):
+            hostResult = -Int(val) - 1
+        default:
+            throw PluginRuntimeError.handlerError("Expected integer from double")
+        }
+
+        // Double again locally
+        let finalResult = hostResult * 2
+        let finalData = try JSONSerialization.data(withJSONObject: finalResult, options: .fragmentsAllowed)
+        try req.output().write(finalData)
+    }
+    func metadata() -> OpMetadata { OpMetadata.builder("NestedCallOp").build() }
+}
+
+struct HeartbeatStressOp: Op, Sendable {
+    typealias Output = Void
+    func perform(dry: DryContext, wet: WetContext) async throws {
+        let req = try wet.getRequired(CborRequest.self, for: WET_KEY_REQUEST)
+        let input = try req.takeInput()
+        let value = try firstValue(from: input)
+        let json = try parseJSONInput(value)
+        let durationMs = json["value"] as! Int
+
+        try await Task.sleep(nanoseconds: UInt64(durationMs) * 1_000_000)
+
+        let response = "stressed-\(durationMs)ms"
+        try req.output().emitCbor(CBOR.byteString([UInt8](response.data(using: .utf8)!)))
+    }
+    func metadata() -> OpMetadata { OpMetadata.builder("HeartbeatStressOp").build() }
+}
+
+struct ConcurrentStressOp: Op, Sendable {
+    typealias Output = Void
+    func perform(dry: DryContext, wet: WetContext) async throws {
+        let req = try wet.getRequired(CborRequest.self, for: WET_KEY_REQUEST)
+        let input = try req.takeInput()
+        let value = try firstValue(from: input)
+        let json = try parseJSONInput(value)
+        let workUnits = json["value"] as! Int
+
+        // Simulate concurrent work with arithmetic (matches existing Swift behavior)
+        var sum: UInt64 = 0
+        for i in 0..<(workUnits * 1000) {
+            sum = sum &+ UInt64(i)
+        }
+
+        let response = "computed-\(sum)"
+        try req.output().emitCbor(CBOR.byteString([UInt8](response.data(using: .utf8)!)))
+    }
+    func metadata() -> OpMetadata { OpMetadata.builder("ConcurrentStressOp").build() }
+}
+
+struct GetManifestOp: Op, Sendable {
+    typealias Output = Void
+    func perform(dry: DryContext, wet: WetContext) async throws {
+        let req = try wet.getRequired(CborRequest.self, for: WET_KEY_REQUEST)
+        let input = try req.takeInput()
+        _ = try input.collectAllBytes() // drain void input
+        let manifest = buildManifest()
+        let resultData = try JSONSerialization.data(withJSONObject: manifest)
+        try req.output().write(resultData)
+    }
+    func metadata() -> OpMetadata { OpMetadata.builder("GetManifestOp").build() }
+}
+
+struct ProcessLargeOp: Op, Sendable {
+    typealias Output = Void
+    func perform(dry: DryContext, wet: WetContext) async throws {
+        let req = try wet.getRequired(CborRequest.self, for: WET_KEY_REQUEST)
+        let input = try req.takeInput()
+        let payload = try input.collectAllBytes()
+        let size = payload.count
+        let hash = SHA256.hash(data: payload)
+        let checksum = hash.compactMap { String(format: "%02x", $0) }.joined()
+
+        let result: [String: Any] = [
+            "size": size,
+            "checksum": checksum
+        ]
+        let resultData = try JSONSerialization.data(withJSONObject: result)
+        try req.output().write(resultData)
+    }
+    func metadata() -> OpMetadata { OpMetadata.builder("ProcessLargeOp").build() }
+}
+
+struct HashIncomingOp: Op, Sendable {
+    typealias Output = Void
+    func perform(dry: DryContext, wet: WetContext) async throws {
+        let req = try wet.getRequired(CborRequest.self, for: WET_KEY_REQUEST)
+        let input = try req.takeInput()
+        let payload = try input.collectAllBytes()
+        let hash = SHA256.hash(data: payload)
+        let checksum = hash.compactMap { String(format: "%02x", $0) }.joined()
+        try req.output().emitCbor(CBOR.byteString([UInt8](checksum.data(using: .utf8)!)))
+    }
+    func metadata() -> OpMetadata { OpMetadata.builder("HashIncomingOp").build() }
+}
+
+struct VerifyBinaryOp: Op, Sendable {
+    typealias Output = Void
+    func perform(dry: DryContext, wet: WetContext) async throws {
+        let req = try wet.getRequired(CborRequest.self, for: WET_KEY_REQUEST)
+        let input = try req.takeInput()
+        let payload = try input.collectAllBytes()
+        var present = Set<UInt8>()
+
+        for byte in payload {
+            present.insert(byte)
+        }
+
+        if present.count == 256 {
+            try req.output().emitCbor(CBOR.byteString([UInt8]("ok".data(using: .utf8)!)))
+        } else {
+            let missing = (0...255).filter { !present.contains(UInt8($0)) }
+            let message = "missing \(missing.count) values"
+            try req.output().emitCbor(CBOR.byteString([UInt8](message.data(using: .utf8)!)))
+        }
+    }
+    func metadata() -> OpMetadata { OpMetadata.builder("VerifyBinaryOp").build() }
+}
+
+struct ReadFileInfoOp: Op, Sendable {
+    typealias Output = Void
+    func perform(dry: DryContext, wet: WetContext) async throws {
+        let req = try wet.getRequired(CborRequest.self, for: WET_KEY_REQUEST)
+        let input = try req.takeInput()
+        // Payload is already file bytes (auto-converted by runtime from file-path)
+        let payload = try input.collectAllBytes()
+        let size = payload.count
+        let hash = SHA256.hash(data: payload)
+        let checksum = hash.compactMap { String(format: "%02x", $0) }.joined()
+
+        let result: [String: Any] = [
+            "size": size,
+            "checksum": checksum
+        ]
+        let resultData = try JSONSerialization.data(withJSONObject: result)
+        try req.output().write(resultData)
+    }
+    func metadata() -> OpMetadata { OpMetadata.builder("ReadFileInfoOp").build() }
 }
 
 // MARK: - Main
@@ -453,23 +537,23 @@ func handleReadFileInfo(input: InputPackage, output: BifaciOutputStream, peer: P
 let manifestJSON = buildManifestJSON()
 let runtime = PluginRuntime(manifestJSON: manifestJSON)
 
-// Register all handlers with exact e-commerce semantic URNs
-runtime.register(capUrn: "cap:in=\"media:bytes\";op=echo;out=\"media:bytes\"", handler: handleEcho)
-runtime.register(capUrn: "cap:in=\"media:order-value;json;textable;form=map\";op=double;out=\"media:loyalty-points;integer;textable;numeric;form=scalar\"", handler: handleDouble)
-runtime.register(capUrn: "cap:in=\"media:update-count;json;textable;form=map\";op=stream_chunks;out=\"media:order-updates;textable\"", handler: handleStreamChunks)
-runtime.register(capUrn: "cap:in=\"media:product-image;bytes\";op=binary_echo;out=\"media:product-image;bytes\"", handler: handleBinaryEcho)
-runtime.register(capUrn: "cap:in=\"media:payment-delay-ms;json;textable;form=map\";op=slow_response;out=\"media:payment-result;textable;form=scalar\"", handler: handleSlowResponse)
-runtime.register(capUrn: "cap:in=\"media:report-size;json;textable;form=map\";op=generate_large;out=\"media:sales-report;bytes\"", handler: handleGenerateLarge)
-runtime.register(capUrn: "cap:in=\"media:fulfillment-steps;json;textable;form=map\";op=with_status;out=\"media:fulfillment-status;textable;form=scalar\"", handler: handleWithStatus)
-runtime.register(capUrn: "cap:in=\"media:payment-error;json;textable;form=map\";op=throw_error;out=\"media:void\"", handler: handleThrowError)
-runtime.register(capUrn: "cap:in=\"media:customer-message;textable;form=scalar\";op=peer_echo;out=\"media:customer-message;textable;form=scalar\"", handler: handlePeerEcho)
-runtime.register(capUrn: "cap:in=\"media:order-value;json;textable;form=map\";op=nested_call;out=\"media:final-price;integer;textable;numeric;form=scalar\"", handler: handleNestedCall)
-runtime.register(capUrn: "cap:in=\"media:monitoring-duration-ms;json;textable;form=map\";op=heartbeat_stress;out=\"media:health-status;textable;form=scalar\"", handler: handleHeartbeatStress)
-runtime.register(capUrn: "cap:in=\"media:order-batch-size;json;textable;form=map\";op=concurrent_stress;out=\"media:batch-result;textable;form=scalar\"", handler: handleConcurrentStress)
-runtime.register(capUrn: "cap:in=\"media:void\";op=get_manifest;out=\"media:service-capabilities;json;textable;form=map\"", handler: handleGetManifest)
-runtime.register(capUrn: "cap:in=\"media:uploaded-document;bytes\";op=process_large;out=\"media:document-info;json;textable;form=map\"", handler: handleProcessLarge)
-runtime.register(capUrn: "cap:in=\"media:uploaded-document;bytes\";op=hash_incoming;out=\"media:document-hash;textable;form=scalar\"", handler: handleHashIncoming)
-runtime.register(capUrn: "cap:in=\"media:package-data;bytes\";op=verify_binary;out=\"media:verification-status;textable;form=scalar\"", handler: handleVerifyBinary)
-runtime.register(capUrn: "cap:in=\"media:invoice;file-path;textable;form=scalar\";op=read_file_info;out=\"media:invoice-metadata;json;textable;form=map\"", handler: handleReadFileInfo)
+// Register all handlers as Op types
+runtime.register_op_type(capUrn: "cap:in=\"media:bytes\";op=echo;out=\"media:bytes\"", make: EchoOp.init)
+runtime.register_op_type(capUrn: "cap:in=\"media:order-value;json;textable;form=map\";op=double;out=\"media:loyalty-points;integer;textable;numeric;form=scalar\"", make: DoubleOp.init)
+runtime.register_op_type(capUrn: "cap:in=\"media:update-count;json;textable;form=map\";op=stream_chunks;out=\"media:order-updates;textable\"", make: StreamChunksOp.init)
+runtime.register_op_type(capUrn: "cap:in=\"media:product-image;bytes\";op=binary_echo;out=\"media:product-image;bytes\"", make: BinaryEchoOp.init)
+runtime.register_op_type(capUrn: "cap:in=\"media:payment-delay-ms;json;textable;form=map\";op=slow_response;out=\"media:payment-result;textable;form=scalar\"", make: SlowResponseOp.init)
+runtime.register_op_type(capUrn: "cap:in=\"media:report-size;json;textable;form=map\";op=generate_large;out=\"media:sales-report;bytes\"", make: GenerateLargeOp.init)
+runtime.register_op_type(capUrn: "cap:in=\"media:fulfillment-steps;json;textable;form=map\";op=with_status;out=\"media:fulfillment-status;textable;form=scalar\"", make: WithStatusOp.init)
+runtime.register_op_type(capUrn: "cap:in=\"media:payment-error;json;textable;form=map\";op=throw_error;out=\"media:void\"", make: ThrowErrorOp.init)
+runtime.register_op_type(capUrn: "cap:in=\"media:customer-message;textable;form=scalar\";op=peer_echo;out=\"media:customer-message;textable;form=scalar\"", make: PeerEchoOp.init)
+runtime.register_op_type(capUrn: "cap:in=\"media:order-value;json;textable;form=map\";op=nested_call;out=\"media:final-price;integer;textable;numeric;form=scalar\"", make: NestedCallOp.init)
+runtime.register_op_type(capUrn: "cap:in=\"media:monitoring-duration-ms;json;textable;form=map\";op=heartbeat_stress;out=\"media:health-status;textable;form=scalar\"", make: HeartbeatStressOp.init)
+runtime.register_op_type(capUrn: "cap:in=\"media:order-batch-size;json;textable;form=map\";op=concurrent_stress;out=\"media:batch-result;textable;form=scalar\"", make: ConcurrentStressOp.init)
+runtime.register_op_type(capUrn: "cap:in=\"media:void\";op=get_manifest;out=\"media:service-capabilities;json;textable;form=map\"", make: GetManifestOp.init)
+runtime.register_op_type(capUrn: "cap:in=\"media:uploaded-document;bytes\";op=process_large;out=\"media:document-info;json;textable;form=map\"", make: ProcessLargeOp.init)
+runtime.register_op_type(capUrn: "cap:in=\"media:uploaded-document;bytes\";op=hash_incoming;out=\"media:document-hash;textable;form=scalar\"", make: HashIncomingOp.init)
+runtime.register_op_type(capUrn: "cap:in=\"media:package-data;bytes\";op=verify_binary;out=\"media:verification-status;textable;form=scalar\"", make: VerifyBinaryOp.init)
+runtime.register_op_type(capUrn: "cap:in=\"media:invoice;file-path;textable;form=scalar\";op=read_file_info;out=\"media:invoice-metadata;json;textable;form=map\"", make: ReadFileInfoOp.init)
 
 try! runtime.run()

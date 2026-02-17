@@ -7,13 +7,15 @@ let package = Package(
         .macOS(.v13)
     ],
     dependencies: [
-        .package(path: "../../../../../capns-objc")
+        .package(path: "../../../../../capns-objc"),
+        .package(path: "../../../../../ops-objc"),
     ],
     targets: [
         .executableTarget(
             name: "capns-interop-plugin-swift",
             dependencies: [
-                .product(name: "Bifaci", package: "capns-objc")
+                .product(name: "Bifaci", package: "capns-objc"),
+                .product(name: "Ops", package: "ops-objc"),
             ],
             path: "Sources"
         )
