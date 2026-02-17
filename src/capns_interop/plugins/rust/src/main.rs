@@ -1,10 +1,12 @@
 use capns::{
     ArgSource, Cap, CapArg, CapManifest, CapOutput, CapUrnBuilder,
-    InputPackage, OutputStream, PeerInvoker, PluginRuntime, RuntimeError,
+    OutputStream, PluginRuntime, RuntimeError, Request, WET_KEY_REQUEST,
+    Op, OpMetadata, DryContext, WetContext, OpResult, OpError, async_trait,
 };
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 use std::collections::HashSet;
+use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
@@ -14,22 +16,31 @@ struct ValueRequest {
     value: serde_json::Value,
 }
 
-// Helper: Collect all input as bytes, then parse as JSON.
-// InputPackage.collect_all_bytes() already CBOR-decodes each CHUNK —
-// the returned bytes are raw data (not CBOR-wrapped). Parse JSON directly.
-fn collect_json_request(input: InputPackage) -> Result<ValueRequest, RuntimeError> {
-    let bytes = input.collect_all_bytes()
-        .map_err(|e| RuntimeError::Handler(format!("Stream error: {}", e)))?;
-    serde_json::from_slice(&bytes)
-        .map_err(|e| RuntimeError::Handler(format!("Invalid JSON: {}", e)))
+// Helper: get Request from WetContext
+fn get_req(wet: &mut WetContext) -> Result<Arc<Request>, OpError> {
+    wet.get_required::<Request>(WET_KEY_REQUEST)
+        .map_err(|e| OpError::ExecutionFailed(e.to_string()))
 }
 
-// Helper: Collect all input as raw bytes.
-// InputPackage.collect_all_bytes() already CBOR-decodes each CHUNK —
-// the returned bytes are raw data. No further decoding needed.
-fn collect_binary(input: InputPackage) -> Result<Vec<u8>, RuntimeError> {
+// Helper: take input and collect all bytes
+fn collect_input_bytes(req: &Request) -> Result<Vec<u8>, OpError> {
+    let input = req.take_input()
+        .map_err(|e| OpError::ExecutionFailed(e.to_string()))?;
     input.collect_all_bytes()
-        .map_err(|e| RuntimeError::Handler(format!("Stream error: {}", e)))
+        .map_err(|e| OpError::ExecutionFailed(format!("Stream error: {}", e)))
+}
+
+// Helper: collect input and parse as JSON
+fn collect_json(req: &Request) -> Result<ValueRequest, OpError> {
+    let bytes = collect_input_bytes(req)?;
+    serde_json::from_slice(&bytes)
+        .map_err(|e| OpError::ExecutionFailed(format!("Invalid JSON: {}", e)))
+}
+
+// Helper: emit CBOR value
+fn emit(output: &OutputStream, value: &ciborium::Value) -> OpResult<()> {
+    output.emit_cbor(value)
+        .map_err(|e| OpError::ExecutionFailed(e.to_string()))
 }
 
 fn build_manifest() -> CapManifest {
@@ -235,6 +246,374 @@ fn build_manifest() -> CapManifest {
     )
 }
 
+// =============================================================================
+// Op Implementations
+// =============================================================================
+
+// === STREAMING OPS (no accumulation) ===
+
+#[derive(Default)]
+struct EchoOp;
+#[async_trait]
+impl Op<()> for EchoOp {
+    async fn perform(&self, _dry: &mut DryContext, wet: &mut WetContext) -> OpResult<()> {
+        let req = get_req(wet)?;
+        let input = req.take_input().map_err(|e| OpError::ExecutionFailed(e.to_string()))?;
+        for stream in input {
+            for chunk in stream.map_err(|e| OpError::ExecutionFailed(e.to_string()))? {
+                emit(req.output(), &chunk.map_err(|e| OpError::ExecutionFailed(e.to_string()))?)?;
+            }
+        }
+        Ok(())
+    }
+    fn metadata(&self) -> OpMetadata { OpMetadata::builder("EchoOp").build() }
+}
+
+#[derive(Default)]
+struct BinaryEchoOp;
+#[async_trait]
+impl Op<()> for BinaryEchoOp {
+    async fn perform(&self, _dry: &mut DryContext, wet: &mut WetContext) -> OpResult<()> {
+        let req = get_req(wet)?;
+        let input = req.take_input().map_err(|e| OpError::ExecutionFailed(e.to_string()))?;
+        for stream in input {
+            for chunk in stream.map_err(|e| OpError::ExecutionFailed(e.to_string()))? {
+                emit(req.output(), &chunk.map_err(|e| OpError::ExecutionFailed(e.to_string()))?)?;
+            }
+        }
+        Ok(())
+    }
+    fn metadata(&self) -> OpMetadata { OpMetadata::builder("BinaryEchoOp").build() }
+}
+
+#[derive(Default)]
+struct PeerEchoOp;
+#[async_trait]
+impl Op<()> for PeerEchoOp {
+    async fn perform(&self, _dry: &mut DryContext, wet: &mut WetContext) -> OpResult<()> {
+        let req = get_req(wet)?;
+        eprintln!("[peer_echo] Handler started");
+        let payload = collect_input_bytes(&req)?;
+        eprintln!("[peer_echo] Collected {} bytes, calling peer", payload.len());
+
+        let response = req.peer().call_with_bytes(
+            "cap:in=media:;out=media:",
+            &[("media:customer-message;textable;form=scalar", &payload)],
+        ).map_err(|e| {
+            eprintln!("[peer_echo] Peer call failed: {}", e);
+            OpError::ExecutionFailed(e.to_string())
+        })?;
+
+        eprintln!("[peer_echo] Got peer response stream");
+        let value = response.collect_value()
+            .map_err(|e| OpError::ExecutionFailed(format!("Peer response error: {}", e)))?;
+        eprintln!("[peer_echo] Got peer response value: {:?}", value);
+        emit(req.output(), &value)
+    }
+    fn metadata(&self) -> OpMetadata { OpMetadata::builder("PeerEchoOp").build() }
+}
+
+// === ACCUMULATING OPS ===
+
+#[derive(Default)]
+struct DoubleOp;
+#[async_trait]
+impl Op<()> for DoubleOp {
+    async fn perform(&self, _dry: &mut DryContext, wet: &mut WetContext) -> OpResult<()> {
+        let req = get_req(wet)?;
+        eprintln!("[double] Handler starting");
+        let json_req = collect_json(&req)?;
+        let value = json_req.value.as_u64()
+            .ok_or_else(|| OpError::ExecutionFailed("Expected number".to_string()))?;
+        eprintln!("[double] Parsed value: {}, doubling to: {}", value, value * 2);
+        let result = value * 2;
+        emit(req.output(), &ciborium::Value::Integer(result.into()))?;
+        eprintln!("[double] Handler complete");
+        Ok(())
+    }
+    fn metadata(&self) -> OpMetadata { OpMetadata::builder("DoubleOp").build() }
+}
+
+#[derive(Default)]
+struct StreamChunksOp;
+#[async_trait]
+impl Op<()> for StreamChunksOp {
+    async fn perform(&self, _dry: &mut DryContext, wet: &mut WetContext) -> OpResult<()> {
+        let req = get_req(wet)?;
+        let json_req = collect_json(&req)?;
+        let count = json_req.value.as_u64()
+            .ok_or_else(|| OpError::ExecutionFailed("Expected number".to_string()))?;
+        for i in 0..count {
+            let chunk = format!("chunk-{}", i);
+            req.output().write(chunk.as_bytes())
+                .map_err(|e| OpError::ExecutionFailed(e.to_string()))?;
+        }
+        req.output().write(b"done")
+            .map_err(|e| OpError::ExecutionFailed(e.to_string()))?;
+        Ok(())
+    }
+    fn metadata(&self) -> OpMetadata { OpMetadata::builder("StreamChunksOp").build() }
+}
+
+#[derive(Default)]
+struct SlowResponseOp;
+#[async_trait]
+impl Op<()> for SlowResponseOp {
+    async fn perform(&self, _dry: &mut DryContext, wet: &mut WetContext) -> OpResult<()> {
+        let req = get_req(wet)?;
+        let json_req = collect_json(&req)?;
+        let sleep_ms = json_req.value.as_u64()
+            .ok_or_else(|| OpError::ExecutionFailed("Expected number".to_string()))?;
+        thread::sleep(Duration::from_millis(sleep_ms));
+        let response = format!("slept-{}ms", sleep_ms);
+        req.output().write(response.as_bytes())
+            .map_err(|e| OpError::ExecutionFailed(e.to_string()))?;
+        Ok(())
+    }
+    fn metadata(&self) -> OpMetadata { OpMetadata::builder("SlowResponseOp").build() }
+}
+
+#[derive(Default)]
+struct GenerateLargeOp;
+#[async_trait]
+impl Op<()> for GenerateLargeOp {
+    async fn perform(&self, _dry: &mut DryContext, wet: &mut WetContext) -> OpResult<()> {
+        let req = get_req(wet)?;
+        let json_req = collect_json(&req)?;
+        let size = json_req.value.as_u64()
+            .ok_or_else(|| OpError::ExecutionFailed("Expected number".to_string()))? as usize;
+        let pattern = b"ABCDEFGH";
+        let mut result = Vec::with_capacity(size);
+        for i in 0..size {
+            result.push(pattern[i % pattern.len()]);
+        }
+        emit(req.output(), &ciborium::Value::Bytes(result))
+    }
+    fn metadata(&self) -> OpMetadata { OpMetadata::builder("GenerateLargeOp").build() }
+}
+
+#[derive(Default)]
+struct WithStatusOp;
+#[async_trait]
+impl Op<()> for WithStatusOp {
+    async fn perform(&self, _dry: &mut DryContext, wet: &mut WetContext) -> OpResult<()> {
+        let req = get_req(wet)?;
+        let json_req = collect_json(&req)?;
+        let steps = json_req.value.as_u64()
+            .ok_or_else(|| OpError::ExecutionFailed("Expected number".to_string()))?;
+        for i in 0..steps {
+            let status = format!("step {}", i);
+            req.output().log("processing", &status);
+            thread::sleep(Duration::from_millis(10));
+        }
+        req.output().write(b"completed")
+            .map_err(|e| OpError::ExecutionFailed(e.to_string()))?;
+        Ok(())
+    }
+    fn metadata(&self) -> OpMetadata { OpMetadata::builder("WithStatusOp").build() }
+}
+
+#[derive(Default)]
+struct ThrowErrorOp;
+#[async_trait]
+impl Op<()> for ThrowErrorOp {
+    async fn perform(&self, _dry: &mut DryContext, wet: &mut WetContext) -> OpResult<()> {
+        let req = get_req(wet)?;
+        let json_req = collect_json(&req)?;
+        let message = json_req.value.as_str()
+            .ok_or_else(|| OpError::ExecutionFailed("Expected string".to_string()))?;
+        Err(OpError::ExecutionFailed(message.to_string()))
+    }
+    fn metadata(&self) -> OpMetadata { OpMetadata::builder("ThrowErrorOp").build() }
+}
+
+#[derive(Default)]
+struct NestedCallOp;
+#[async_trait]
+impl Op<()> for NestedCallOp {
+    async fn perform(&self, _dry: &mut DryContext, wet: &mut WetContext) -> OpResult<()> {
+        let req = get_req(wet)?;
+        eprintln!("[nested_call] Starting handler");
+        let json_req = collect_json(&req)?;
+        let value = json_req.value.as_u64()
+            .ok_or_else(|| OpError::ExecutionFailed("Expected number".to_string()))?;
+        eprintln!("[nested_call] Parsed value: {}", value);
+
+        let double_arg = serde_json::to_vec(&serde_json::json!({"value": value}))
+            .map_err(|e| OpError::ExecutionFailed(e.to_string()))?;
+
+        eprintln!("[nested_call] Calling peer double");
+        let response = req.peer().call_with_bytes(
+            r#"cap:in="media:order-value;json;textable;form=map";op=double;out="media:loyalty-points;integer;textable;numeric;form=scalar""#,
+            &[("media:order-value;json;textable;form=map", &double_arg)],
+        ).map_err(|e| OpError::ExecutionFailed(e.to_string()))?;
+
+        let cbor_value = response.collect_value()
+            .map_err(|e| OpError::ExecutionFailed(format!("Peer response error: {}", e)))?;
+        eprintln!("[nested_call] Peer response: {:?}", cbor_value);
+
+        let host_result = match cbor_value {
+            ciborium::Value::Integer(n) => {
+                let val: i128 = n.into();
+                val as u64
+            }
+            _ => return Err(OpError::ExecutionFailed(format!(
+                "Expected integer from double, got: {:?}", cbor_value
+            ))),
+        };
+
+        let final_result = host_result * 2;
+        eprintln!("[nested_call] Final result: {}", final_result);
+        emit(req.output(), &ciborium::Value::Integer(final_result.into()))
+    }
+    fn metadata(&self) -> OpMetadata { OpMetadata::builder("NestedCallOp").build() }
+}
+
+#[derive(Default)]
+struct HeartbeatStressOp;
+#[async_trait]
+impl Op<()> for HeartbeatStressOp {
+    async fn perform(&self, _dry: &mut DryContext, wet: &mut WetContext) -> OpResult<()> {
+        let req = get_req(wet)?;
+        let json_req = collect_json(&req)?;
+        let duration_ms = json_req.value.as_u64()
+            .ok_or_else(|| OpError::ExecutionFailed("Expected number".to_string()))?;
+        let chunks = duration_ms / 100;
+        let remainder = duration_ms % 100;
+        for _ in 0..chunks {
+            thread::sleep(Duration::from_millis(100));
+        }
+        if remainder > 0 {
+            thread::sleep(Duration::from_millis(remainder));
+        }
+        let response = format!("stressed-{}ms", duration_ms);
+        req.output().write(response.as_bytes())
+            .map_err(|e| OpError::ExecutionFailed(e.to_string()))?;
+        Ok(())
+    }
+    fn metadata(&self) -> OpMetadata { OpMetadata::builder("HeartbeatStressOp").build() }
+}
+
+#[derive(Default)]
+struct ConcurrentStressOp;
+#[async_trait]
+impl Op<()> for ConcurrentStressOp {
+    async fn perform(&self, _dry: &mut DryContext, wet: &mut WetContext) -> OpResult<()> {
+        let req = get_req(wet)?;
+        let json_req = collect_json(&req)?;
+        let thread_count = json_req.value.as_u64()
+            .ok_or_else(|| OpError::ExecutionFailed("Expected number".to_string()))? as usize;
+        let handles: Vec<_> = (0..thread_count)
+            .map(|i| thread::spawn(move || { thread::sleep(Duration::from_millis(10)); i }))
+            .collect();
+        let mut results = Vec::new();
+        for handle in handles {
+            results.push(handle.join().unwrap());
+        }
+        let sum: usize = results.iter().sum();
+        let response = format!("computed-{}", sum);
+        req.output().write(response.as_bytes())
+            .map_err(|e| OpError::ExecutionFailed(e.to_string()))?;
+        Ok(())
+    }
+    fn metadata(&self) -> OpMetadata { OpMetadata::builder("ConcurrentStressOp").build() }
+}
+
+#[derive(Default)]
+struct GetManifestOp;
+#[async_trait]
+impl Op<()> for GetManifestOp {
+    async fn perform(&self, _dry: &mut DryContext, wet: &mut WetContext) -> OpResult<()> {
+        let req = get_req(wet)?;
+        let _ = collect_input_bytes(&req);
+        let manifest = build_manifest();
+        let manifest_json = serde_json::to_vec(&manifest)
+            .map_err(|e| OpError::ExecutionFailed(e.to_string()))?;
+        emit(req.output(), &ciborium::Value::Bytes(manifest_json))
+    }
+    fn metadata(&self) -> OpMetadata { OpMetadata::builder("GetManifestOp").build() }
+}
+
+#[derive(Default)]
+struct ProcessLargeOp;
+#[async_trait]
+impl Op<()> for ProcessLargeOp {
+    async fn perform(&self, _dry: &mut DryContext, wet: &mut WetContext) -> OpResult<()> {
+        let req = get_req(wet)?;
+        let payload = collect_input_bytes(&req)?;
+        let mut hasher = Sha256::new();
+        hasher.update(&payload);
+        let hash = hasher.finalize();
+        let hash_hex = hex::encode(hash);
+        let result = serde_json::to_vec(&serde_json::json!({"size": payload.len(), "checksum": hash_hex}))
+            .map_err(|e| OpError::ExecutionFailed(e.to_string()))?;
+        emit(req.output(), &ciborium::Value::Bytes(result))
+    }
+    fn metadata(&self) -> OpMetadata { OpMetadata::builder("ProcessLargeOp").build() }
+}
+
+#[derive(Default)]
+struct HashIncomingOp;
+#[async_trait]
+impl Op<()> for HashIncomingOp {
+    async fn perform(&self, _dry: &mut DryContext, wet: &mut WetContext) -> OpResult<()> {
+        let req = get_req(wet)?;
+        let payload = collect_input_bytes(&req)?;
+        let mut hasher = Sha256::new();
+        hasher.update(&payload);
+        let hash = hasher.finalize();
+        let hash_hex = hex::encode(hash);
+        req.output().write(hash_hex.as_bytes())
+            .map_err(|e| OpError::ExecutionFailed(e.to_string()))?;
+        Ok(())
+    }
+    fn metadata(&self) -> OpMetadata { OpMetadata::builder("HashIncomingOp").build() }
+}
+
+#[derive(Default)]
+struct VerifyBinaryOp;
+#[async_trait]
+impl Op<()> for VerifyBinaryOp {
+    async fn perform(&self, _dry: &mut DryContext, wet: &mut WetContext) -> OpResult<()> {
+        let req = get_req(wet)?;
+        let payload = collect_input_bytes(&req)?;
+        let mut seen = HashSet::new();
+        for &byte in &payload {
+            seen.insert(byte);
+        }
+        if seen.len() == 256 {
+            req.output().write(b"ok")
+                .map_err(|e| OpError::ExecutionFailed(e.to_string()))?;
+        } else {
+            let mut missing: Vec<u8> = (0..=255u8).filter(|b| !seen.contains(b)).collect();
+            missing.sort();
+            let msg = format!("missing byte values: {:?}", missing);
+            req.output().write(msg.as_bytes())
+                .map_err(|e| OpError::ExecutionFailed(e.to_string()))?;
+        }
+        Ok(())
+    }
+    fn metadata(&self) -> OpMetadata { OpMetadata::builder("VerifyBinaryOp").build() }
+}
+
+#[derive(Default)]
+struct ReadFileInfoOp;
+#[async_trait]
+impl Op<()> for ReadFileInfoOp {
+    async fn perform(&self, _dry: &mut DryContext, wet: &mut WetContext) -> OpResult<()> {
+        let req = get_req(wet)?;
+        let file_content = collect_input_bytes(&req)?;
+        let mut hasher = Sha256::new();
+        hasher.update(&file_content);
+        let hash = hasher.finalize();
+        let hash_hex = hex::encode(hash);
+        let result = serde_json::to_vec(&serde_json::json!({"size": file_content.len(), "checksum": hash_hex}))
+            .map_err(|e| OpError::ExecutionFailed(e.to_string()))?;
+        emit(req.output(), &ciborium::Value::Bytes(result))
+    }
+    fn metadata(&self) -> OpMetadata { OpMetadata::builder("ReadFileInfoOp").build() }
+}
+
 fn main() -> Result<(), RuntimeError> {
     eprintln!("[PLUGIN MAIN] Starting");
     let manifest = build_manifest();
@@ -242,399 +621,31 @@ fn main() -> Result<(), RuntimeError> {
     let mut runtime = PluginRuntime::with_manifest(manifest);
     eprintln!("[PLUGIN MAIN] Created runtime");
 
-    // Register handlers for all test capabilities
-    runtime.register_raw(r#"cap:in="media:bytes";op=echo;out="media:bytes""#, handle_echo);
-    runtime.register_raw(r#"cap:in="media:order-value;json;textable;form=map";op=double;out="media:loyalty-points;integer;textable;numeric;form=scalar""#, handle_double);
-    runtime.register_raw(r#"cap:in="media:update-count;json;textable;form=map";op=stream_chunks;out="media:order-updates;textable""#, handle_stream_chunks);
-    runtime.register_raw(r#"cap:in="media:product-image;bytes";op=binary_echo;out="media:product-image;bytes""#, handle_binary_echo);
-    runtime.register_raw(r#"cap:in="media:payment-delay-ms;json;textable;form=map";op=slow_response;out="media:payment-result;textable;form=scalar""#, handle_slow_response);
-    runtime.register_raw(r#"cap:in="media:report-size;json;textable;form=map";op=generate_large;out="media:sales-report;bytes""#, handle_generate_large);
-    runtime.register_raw(r#"cap:in="media:fulfillment-steps;json;textable;form=map";op=with_status;out="media:fulfillment-status;textable;form=scalar""#, handle_with_status);
-    runtime.register_raw(r#"cap:in="media:payment-error;json;textable;form=map";op=throw_error;out=media:void"#, handle_throw_error);
-    runtime.register_raw(r#"cap:in="media:customer-message;textable;form=scalar";op=peer_echo;out="media:customer-message;textable;form=scalar""#, handle_peer_echo);
-    runtime.register_raw(r#"cap:in="media:order-value;json;textable;form=map";op=nested_call;out="media:final-price;integer;textable;numeric;form=scalar""#, handle_nested_call);
-    runtime.register_raw(
+    // Register all handlers as Op types
+    runtime.register_op_type::<EchoOp>(r#"cap:in="media:bytes";op=echo;out="media:bytes""#);
+    runtime.register_op_type::<DoubleOp>(r#"cap:in="media:order-value;json;textable;form=map";op=double;out="media:loyalty-points;integer;textable;numeric;form=scalar""#);
+    runtime.register_op_type::<StreamChunksOp>(r#"cap:in="media:update-count;json;textable;form=map";op=stream_chunks;out="media:order-updates;textable""#);
+    runtime.register_op_type::<BinaryEchoOp>(r#"cap:in="media:product-image;bytes";op=binary_echo;out="media:product-image;bytes""#);
+    runtime.register_op_type::<SlowResponseOp>(r#"cap:in="media:payment-delay-ms;json;textable;form=map";op=slow_response;out="media:payment-result;textable;form=scalar""#);
+    runtime.register_op_type::<GenerateLargeOp>(r#"cap:in="media:report-size;json;textable;form=map";op=generate_large;out="media:sales-report;bytes""#);
+    runtime.register_op_type::<WithStatusOp>(r#"cap:in="media:fulfillment-steps;json;textable;form=map";op=with_status;out="media:fulfillment-status;textable;form=scalar""#);
+    runtime.register_op_type::<ThrowErrorOp>(r#"cap:in="media:payment-error;json;textable;form=map";op=throw_error;out=media:void"#);
+    runtime.register_op_type::<PeerEchoOp>(r#"cap:in="media:customer-message;textable;form=scalar";op=peer_echo;out="media:customer-message;textable;form=scalar""#);
+    runtime.register_op_type::<NestedCallOp>(r#"cap:in="media:order-value;json;textable;form=map";op=nested_call;out="media:final-price;integer;textable;numeric;form=scalar""#);
+    runtime.register_op_type::<HeartbeatStressOp>(
         r#"cap:in="media:monitoring-duration-ms;json;textable;form=map";op=heartbeat_stress;out="media:health-status;textable;form=scalar""#,
-        handle_heartbeat_stress,
     );
-    runtime.register_raw(
+    runtime.register_op_type::<ConcurrentStressOp>(
         r#"cap:in="media:order-batch-size;json;textable;form=map";op=concurrent_stress;out="media:batch-result;textable;form=scalar""#,
-        handle_concurrent_stress,
     );
-    runtime.register_raw(r#"cap:in=media:void;op=get_manifest;out="media:service-capabilities;json;textable;form=map""#, handle_get_manifest);
-    runtime.register_raw(r#"cap:in="media:uploaded-document;bytes";op=process_large;out="media:document-info;json;textable;form=map""#, handle_process_large);
-    runtime.register_raw(r#"cap:in="media:uploaded-document;bytes";op=hash_incoming;out="media:document-hash;textable;form=scalar""#, handle_hash_incoming);
-    runtime.register_raw(r#"cap:in="media:package-data;bytes";op=verify_binary;out="media:verification-status;textable;form=scalar""#, handle_verify_binary);
-    runtime.register_raw(r#"cap:in="media:invoice;file-path;textable;form=scalar";op=read_file_info;out="media:invoice-metadata;json;textable;form=map""#, handle_read_file_info);
+    runtime.register_op_type::<GetManifestOp>(r#"cap:in=media:void;op=get_manifest;out="media:service-capabilities;json;textable;form=map""#);
+    runtime.register_op_type::<ProcessLargeOp>(r#"cap:in="media:uploaded-document;bytes";op=process_large;out="media:document-info;json;textable;form=map""#);
+    runtime.register_op_type::<HashIncomingOp>(r#"cap:in="media:uploaded-document;bytes";op=hash_incoming;out="media:document-hash;textable;form=scalar""#);
+    runtime.register_op_type::<VerifyBinaryOp>(r#"cap:in="media:package-data;bytes";op=verify_binary;out="media:verification-status;textable;form=scalar""#);
+    runtime.register_op_type::<ReadFileInfoOp>(r#"cap:in="media:invoice;file-path;textable;form=scalar";op=read_file_info;out="media:invoice-metadata;json;textable;form=map""#);
 
     eprintln!("[PLUGIN MAIN] Calling runtime.run()");
     let result = runtime.run();
     eprintln!("[PLUGIN MAIN] runtime.run() returned: {:?}", result);
     result
-}
-
-// === STREAMING HANDLERS (no accumulation — handle infinite streams) ===
-
-// Handler: echo — identity cap, pure passthrough
-fn handle_echo(
-    input: InputPackage,
-    output: &OutputStream,
-    _peer: &dyn PeerInvoker,
-) -> Result<(), RuntimeError> {
-    for stream in input {
-        for chunk in stream? {
-            output.emit_cbor(&chunk?)?;
-        }
-    }
-    Ok(())
-}
-
-// Handler: binary_echo — same pattern (binary passthrough)
-fn handle_binary_echo(
-    input: InputPackage,
-    output: &OutputStream,
-    _peer: &dyn PeerInvoker,
-) -> Result<(), RuntimeError> {
-    for stream in input {
-        for chunk in stream? {
-            output.emit_cbor(&chunk?)?;
-        }
-    }
-    Ok(())
-}
-
-// Handler: peer_echo — forward input to peer, stream response back
-fn handle_peer_echo(
-    input: InputPackage,
-    output: &OutputStream,
-    peer: &dyn PeerInvoker,
-) -> Result<(), RuntimeError> {
-    eprintln!("[peer_echo] Handler started");
-    let payload = collect_binary(input)?;
-    eprintln!("[peer_echo] Collected {} bytes, calling peer", payload.len());
-
-    let response = peer.call_with_bytes(
-        "cap:in=media:;out=media:",
-        &[("media:customer-message;textable;form=scalar", &payload)],
-    ).map_err(|e| {
-        eprintln!("[peer_echo] Peer call failed: {}", e);
-        e
-    })?;
-
-    eprintln!("[peer_echo] Got peer response stream");
-    let value = response.collect_value()
-        .map_err(|e| RuntimeError::Handler(format!("Peer response error: {}", e)))?;
-    eprintln!("[peer_echo] Got peer response value: {:?}", value);
-
-    output.emit_cbor(&value)?;
-    Ok(())
-}
-
-// === ACCUMULATING HANDLERS (need complete data for business logic) ===
-
-// Handler: double — must parse JSON to extract number
-fn handle_double(
-    input: InputPackage,
-    output: &OutputStream,
-    _peer: &dyn PeerInvoker,
-) -> Result<(), RuntimeError> {
-    eprintln!("[double] Handler starting");
-    let req = collect_json_request(input)?;
-    let value = req.value.as_u64()
-        .ok_or_else(|| RuntimeError::Handler("Expected number".to_string()))?;
-
-    eprintln!("[double] Parsed value: {}, doubling to: {}", value, value * 2);
-    let result = value * 2;
-
-    output.emit_cbor(&ciborium::Value::Integer(result.into()))?;
-    eprintln!("[double] Handler complete");
-    Ok(())
-}
-
-// Handler: stream_chunks — must parse JSON to get count, then streams output
-fn handle_stream_chunks(
-    input: InputPackage,
-    output: &OutputStream,
-    _peer: &dyn PeerInvoker,
-) -> Result<(), RuntimeError> {
-    let req = collect_json_request(input)?;
-    let count = req.value.as_u64()
-        .ok_or_else(|| RuntimeError::Handler("Expected number".to_string()))?;
-
-    for i in 0..count {
-        let chunk = format!("chunk-{}", i);
-        output.write(chunk.as_bytes())?;
-    }
-    output.write(b"done")?;
-    Ok(())
-}
-
-// Handler: slow_response — sleeps before responding
-fn handle_slow_response(
-    input: InputPackage,
-    output: &OutputStream,
-    _peer: &dyn PeerInvoker,
-) -> Result<(), RuntimeError> {
-    let req = collect_json_request(input)?;
-    let sleep_ms = req.value.as_u64()
-        .ok_or_else(|| RuntimeError::Handler("Expected number".to_string()))?;
-
-    thread::sleep(Duration::from_millis(sleep_ms));
-
-    let response = format!("slept-{}ms", sleep_ms);
-    output.write(response.as_bytes())?;
-    Ok(())
-}
-
-// Handler: generate_large — generates large payload
-fn handle_generate_large(
-    input: InputPackage,
-    output: &OutputStream,
-    _peer: &dyn PeerInvoker,
-) -> Result<(), RuntimeError> {
-    let req = collect_json_request(input)?;
-    let size = req.value.as_u64()
-        .ok_or_else(|| RuntimeError::Handler("Expected number".to_string()))? as usize;
-
-    let pattern = b"ABCDEFGH";
-    let mut result = Vec::with_capacity(size);
-    for i in 0..size {
-        result.push(pattern[i % pattern.len()]);
-    }
-
-    output.emit_cbor(&ciborium::Value::Bytes(result))?;
-    Ok(())
-}
-
-// Handler: with_status — emits status messages during processing
-fn handle_with_status(
-    input: InputPackage,
-    output: &OutputStream,
-    _peer: &dyn PeerInvoker,
-) -> Result<(), RuntimeError> {
-    let req = collect_json_request(input)?;
-    let steps = req.value.as_u64()
-        .ok_or_else(|| RuntimeError::Handler("Expected number".to_string()))?;
-
-    for i in 0..steps {
-        let status = format!("step {}", i);
-        output.log("processing", &status);
-        thread::sleep(Duration::from_millis(10));
-    }
-
-    output.write(b"completed")?;
-    Ok(())
-}
-
-// Handler: throw_error — returns an error
-fn handle_throw_error(
-    input: InputPackage,
-    _output: &OutputStream,
-    _peer: &dyn PeerInvoker,
-) -> Result<(), RuntimeError> {
-    let req = collect_json_request(input)?;
-    let message = req.value.as_str()
-        .ok_or_else(|| RuntimeError::Handler("Expected string".to_string()))?;
-    Err(RuntimeError::Handler(message.to_string()))
-}
-
-// Handler: nested_call — makes a peer call to double, then doubles again
-fn handle_nested_call(
-    input: InputPackage,
-    output: &OutputStream,
-    peer: &dyn PeerInvoker,
-) -> Result<(), RuntimeError> {
-    eprintln!("[nested_call] Starting handler");
-    let req = collect_json_request(input)?;
-    let value = req.value.as_u64()
-        .ok_or_else(|| RuntimeError::Handler("Expected number".to_string()))?;
-
-    eprintln!("[nested_call] Parsed value: {}", value);
-
-    // Call host's double capability
-    let double_arg = serde_json::to_vec(&serde_json::json!({"value": value}))
-        .map_err(|e| RuntimeError::Serialize(e.to_string()))?;
-
-    eprintln!("[nested_call] Calling peer double");
-    let response = peer.call_with_bytes(
-        r#"cap:in="media:order-value;json;textable;form=map";op=double;out="media:loyalty-points;integer;textable;numeric;form=scalar""#,
-        &[("media:order-value;json;textable;form=map", &double_arg)],
-    )?;
-
-    let cbor_value = response.collect_value()
-        .map_err(|e| RuntimeError::Handler(format!("Peer response error: {}", e)))?;
-    eprintln!("[nested_call] Peer response: {:?}", cbor_value);
-
-    let host_result = match cbor_value {
-        ciborium::Value::Integer(n) => {
-            let val: i128 = n.into();
-            val as u64
-        }
-        _ => return Err(RuntimeError::Deserialize(format!(
-            "Expected integer from double, got: {:?}", cbor_value
-        ))),
-    };
-
-    let final_result = host_result * 2;
-    eprintln!("[nested_call] Final result: {}", final_result);
-
-    output.emit_cbor(&ciborium::Value::Integer(final_result.into()))?;
-    Ok(())
-}
-
-// Handler: heartbeat_stress — simulates heavy processing
-fn handle_heartbeat_stress(
-    input: InputPackage,
-    output: &OutputStream,
-    _peer: &dyn PeerInvoker,
-) -> Result<(), RuntimeError> {
-    let req = collect_json_request(input)?;
-    let duration_ms = req.value.as_u64()
-        .ok_or_else(|| RuntimeError::Handler("Expected number".to_string()))?;
-
-    let chunks = duration_ms / 100;
-    let remainder = duration_ms % 100;
-    for _ in 0..chunks {
-        thread::sleep(Duration::from_millis(100));
-    }
-    if remainder > 0 {
-        thread::sleep(Duration::from_millis(remainder));
-    }
-
-    let response = format!("stressed-{}ms", duration_ms);
-    output.write(response.as_bytes())?;
-    Ok(())
-}
-
-// Handler: concurrent_stress — spawns multiple threads
-fn handle_concurrent_stress(
-    input: InputPackage,
-    output: &OutputStream,
-    _peer: &dyn PeerInvoker,
-) -> Result<(), RuntimeError> {
-    let req = collect_json_request(input)?;
-    let thread_count = req.value.as_u64()
-        .ok_or_else(|| RuntimeError::Handler("Expected number".to_string()))? as usize;
-
-    let handles: Vec<_> = (0..thread_count)
-        .map(|i| {
-            thread::spawn(move || {
-                thread::sleep(Duration::from_millis(10));
-                i
-            })
-        })
-        .collect();
-
-    let mut results = Vec::new();
-    for handle in handles {
-        results.push(handle.join().unwrap());
-    }
-
-    let sum: usize = results.iter().sum();
-    let response = format!("computed-{}", sum);
-    output.write(response.as_bytes())?;
-    Ok(())
-}
-
-// Handler: get_manifest — returns plugin manifest
-fn handle_get_manifest(
-    input: InputPackage,
-    output: &OutputStream,
-    _peer: &dyn PeerInvoker,
-) -> Result<(), RuntimeError> {
-    // Consume input (even if void)
-    let _ = input.collect_all_bytes();
-
-    let manifest = build_manifest();
-    let manifest_json = serde_json::to_vec(&manifest)
-        .map_err(|e| RuntimeError::Serialize(e.to_string()))?;
-    output.emit_cbor(&ciborium::Value::Bytes(manifest_json))?;
-    Ok(())
-}
-
-// Handler: process_large — processes large binary data
-fn handle_process_large(
-    input: InputPackage,
-    output: &OutputStream,
-    _peer: &dyn PeerInvoker,
-) -> Result<(), RuntimeError> {
-    let payload = collect_binary(input)?;
-
-    let mut hasher = Sha256::new();
-    hasher.update(&payload);
-    let hash = hasher.finalize();
-    let hash_hex = hex::encode(hash);
-
-    let result = serde_json::to_vec(&serde_json::json!({
-        "size": payload.len(),
-        "checksum": hash_hex
-    }))
-    .map_err(|e| RuntimeError::Serialize(e.to_string()))?;
-
-    output.emit_cbor(&ciborium::Value::Bytes(result))?;
-    Ok(())
-}
-
-// Handler: hash_incoming — computes SHA256 hash
-fn handle_hash_incoming(
-    input: InputPackage,
-    output: &OutputStream,
-    _peer: &dyn PeerInvoker,
-) -> Result<(), RuntimeError> {
-    let payload = collect_binary(input)?;
-
-    let mut hasher = Sha256::new();
-    hasher.update(&payload);
-    let hash = hasher.finalize();
-    let hash_hex = hex::encode(hash);
-
-    output.write(hash_hex.as_bytes())?;
-    Ok(())
-}
-
-// Handler: verify_binary — checks if all 256 byte values are present
-fn handle_verify_binary(
-    input: InputPackage,
-    output: &OutputStream,
-    _peer: &dyn PeerInvoker,
-) -> Result<(), RuntimeError> {
-    let payload = collect_binary(input)?;
-
-    let mut seen = HashSet::new();
-    for &byte in &payload {
-        seen.insert(byte);
-    }
-
-    if seen.len() == 256 {
-        output.write(b"ok")?;
-    } else {
-        let mut missing: Vec<u8> = (0..=255u8).filter(|b| !seen.contains(b)).collect();
-        missing.sort();
-        let msg = format!("missing byte values: {:?}", missing);
-        output.write(msg.as_bytes())?;
-    }
-    Ok(())
-}
-
-// Handler: read_file_info — reads file and returns metadata
-fn handle_read_file_info(
-    input: InputPackage,
-    output: &OutputStream,
-    _peer: &dyn PeerInvoker,
-) -> Result<(), RuntimeError> {
-    let file_content = collect_binary(input)?;
-
-    let mut hasher = Sha256::new();
-    hasher.update(&file_content);
-    let hash = hasher.finalize();
-    let hash_hex = hex::encode(hash);
-
-    let result = serde_json::to_vec(&serde_json::json!({
-        "size": file_content.len(),
-        "checksum": hash_hex
-    }))
-    .map_err(|e| RuntimeError::Serialize(e.to_string()))?;
-
-    output.emit_cbor(&ciborium::Value::Bytes(result))?;
-    Ok(())
 }
