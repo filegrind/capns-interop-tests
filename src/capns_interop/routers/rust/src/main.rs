@@ -162,7 +162,7 @@ fn main() {
                 eprintln!("[Router/main] Sending stdin frame to master: {:?} (id={:?})", frame.frame_type, frame.id);
                 let frame_id = frame.id.clone();
                 let is_req = frame.frame_type == capns::bifaci::frame::FrameType::Req;
-                if let Err(e) = switch.send_to_master(frame) {
+                if let Err(e) = switch.send_to_master(frame, None) {
                     eprintln!("[Router/main] Error sending to master: {}", e);
                     // On REQ failure, send ERR back to engine so it doesn't hang
                     if is_req {

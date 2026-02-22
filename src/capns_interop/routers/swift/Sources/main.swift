@@ -187,7 +187,7 @@ while true {
         let frameId = frame.id
         let isReq = frame.frameType == FrameType.req
         do {
-            try relaySwitch.sendToMaster(frame)
+            try relaySwitch.sendToMaster(frame, preferredCap: nil)
         } catch {
             fputs("[Router/main] Error sending to master: \(error)\n", stderr)
             // On REQ failure, send ERR back to engine so it doesn't hang

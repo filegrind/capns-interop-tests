@@ -118,4 +118,4 @@ class RelaySwitchWriter:
 
     def write(self, frame):
         """Send frame through switch."""
-        return self.switch.send_to_master(frame)
+        return self.switch.send_to_master(frame, None)
