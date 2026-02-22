@@ -1,7 +1,7 @@
 // Multi-plugin relay host test binary for cross-language interop tests.
 //
 // Creates a PluginHost managing N plugin subprocesses, with optional RelaySlave layer.
-// Communicates via raw CBOR frames on stdin/stdout.
+// Communicates via raw CBOR frames on stdin/stdout or Unix socket.
 //
 // Without --relay:
 //
@@ -12,12 +12,18 @@
 //	stdin/stdout carry CBOR frames including relay-specific types.
 //	RelaySlave sits between stdin/stdout and PluginHost.
 //	Initial RelayNotify sent on startup with aggregate manifest + limits.
+//
+// With --listen <socket-path>:
+//
+//	Creates a Unix socket listener and accepts ONE connection from router.
+//	Router and host are independent processes (not parent-child).
 package main
 
 import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"os/exec"
 	"strings"
@@ -37,8 +43,10 @@ func (p *pluginList) Set(v string) error {
 func main() {
 	var plugins pluginList
 	var relay bool
+	var listenSocket string
 	flag.Var(&plugins, "spawn", "path to plugin binary (repeatable)")
 	flag.BoolVar(&relay, "relay", false, "enable RelaySlave layer")
+	flag.StringVar(&listenSocket, "listen", "", "Unix socket path to listen on")
 	flag.Parse()
 
 	if len(plugins) == 0 {
@@ -73,7 +81,11 @@ func main() {
 	}()
 
 	if relay {
-		runWithRelay(host)
+		if listenSocket != "" {
+			runWithRelaySocket(host, listenSocket)
+		} else {
+			runWithRelay(host)
+		}
 	} else {
 		runDirect(host)
 	}
@@ -108,6 +120,38 @@ func runDirect(host *bifaci.PluginHost) {
 }
 
 func runWithRelay(host *bifaci.PluginHost) {
+	runRelayWithIO(host, os.Stdin, os.Stdout)
+}
+
+func runWithRelaySocket(host *bifaci.PluginHost, socketPath string) {
+	// Remove existing socket if it exists
+	os.Remove(socketPath)
+
+	// Create Unix socket listener
+	listener, err := net.Listen("unix", socketPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to bind socket %s: %v\n", socketPath, err)
+		os.Exit(1)
+	}
+	defer listener.Close()
+
+	fmt.Fprintf(os.Stderr, "[RelayHost] Listening on socket: %s\n", socketPath)
+
+	// Accept ONE connection from router
+	conn, err := listener.Accept()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to accept connection: %v\n", err)
+		os.Exit(1)
+	}
+	defer conn.Close()
+
+	fmt.Fprintf(os.Stderr, "[RelayHost] Router connected\n")
+
+	// Run relay with socket as stdin/stdout
+	runRelayWithIO(host, conn, conn)
+}
+
+func runRelayWithIO(host *bifaci.PluginHost, relayInput io.Reader, relayOutput io.Writer) {
 	// Create two pipe pairs for bidirectional communication between slave and host.
 	// Pipe A: slave writes → host reads
 	aRead, aWrite, err := os.Pipe()
@@ -142,7 +186,7 @@ func runWithRelay(host *bifaci.PluginHost) {
 
 	// Run RelaySlave in main goroutine
 	slave := bifaci.NewRelaySlave(bRead, aWrite)
-	slaveErr := slave.Run(os.Stdin, os.Stdout, &bifaci.RelayNotifyParams{
+	slaveErr := slave.Run(relayInput, relayOutput, &bifaci.RelayNotifyParams{
 		Manifest: caps,
 		Limits:   limits,
 	})

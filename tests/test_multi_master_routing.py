@@ -8,6 +8,7 @@ These tests verify actual routing behavior, not tautologies. The goal is
 to expose routing issues and validate the router's master selection algorithm.
 """
 
+import json
 import pytest
 import cbor2
 
@@ -60,12 +61,29 @@ def test_two_masters_distinct_capabilities(router_binaries, relay_host_binaries,
 
         # Request to master-b's plugin (go plugin has double)
         req_id2 = make_req_id()
-        payload2 = {"value": 42}
-        send_request(writer, req_id2, DOUBLE_CAP, cbor2.dumps(payload2), content_type="application/cbor")
-        output2, _ = read_response(reader)
-        decoded2 = cbor2.loads(output2)
-        assert decoded2 == 84, (
-            f"[{router_lang}] double from master-b failed: expected 84, got {decoded2}"
+        input_json2 = json.dumps({"value": 42}).encode()
+        send_request(writer, req_id2, DOUBLE_CAP, input_json2, media_urn="media:order-value;json;textable;form=map")
+        output2, frames2 = read_response(reader)
+
+        # Check for ERR frames
+        err_frames = [f for f in frames2 if f.frame_type == FrameType.ERR]
+        if err_frames:
+            err = err_frames[0]
+            raise AssertionError(
+                f"[{router_lang}] Request to master-b failed with ERR: "
+                f"code={err.error_code()}, message={err.error_message()}"
+            )
+
+        # Plugin can return integer directly (CBOR) or JSON bytes
+        if isinstance(output2, int):
+            result2 = output2
+        elif isinstance(output2, bytes):
+            result2 = json.loads(output2)
+        else:
+            result2 = output2
+
+        assert result2 == 84, (
+            f"[{router_lang}] double from master-b failed: expected 84, got {result2}"
         )
 
 
@@ -175,12 +193,20 @@ def test_capability_segregation(router_binaries, relay_host_binaries, plugin_bin
 
         # Master 2: double capability
         req_id2 = make_req_id()
-        payload2 = {"value": 10}
-        send_request(writer, req_id2, DOUBLE_CAP, cbor2.dumps(payload2), content_type="application/cbor")
+        input_json2 = json.dumps({"value": 10}).encode()
+        send_request(writer, req_id2, DOUBLE_CAP, input_json2, media_urn="media:order-value;json;textable;form=map")
         output2, _ = read_response(reader)
-        decoded2 = cbor2.loads(output2)
-        assert decoded2 == 20, (
-            f"[{router_lang}/{plugin_lang}] double routing failed: expected 20, got {decoded2}"
+
+        # Plugin can return integer directly (CBOR) or JSON bytes
+        if isinstance(output2, int):
+            result2 = output2
+        elif isinstance(output2, bytes):
+            result2 = json.loads(output2)
+        else:
+            result2 = output2
+
+        assert result2 == 20, (
+            f"[{router_lang}/{plugin_lang}] double routing failed: expected 20, got {result2}"
         )
 
 
@@ -279,12 +305,21 @@ def test_four_masters_mixed_capabilities(router_binaries, relay_host_binaries, p
         for cap_urn, payload in test_cases:
             req_id = make_req_id()
             if isinstance(payload, dict):
-                send_request(writer, req_id, cap_urn, cbor2.dumps(payload), content_type="application/cbor")
+                input_json = json.dumps(payload).encode()
+                send_request(writer, req_id, cap_urn, input_json, media_urn="media:order-value;json;textable;form=map")
                 output, _ = read_response(reader)
-                decoded = cbor2.loads(output)
+
+                # Plugin can return integer directly (CBOR) or JSON bytes
+                if isinstance(output, int):
+                    result = output
+                elif isinstance(output, bytes):
+                    result = json.loads(output)
+                else:
+                    result = output
+
                 expected = payload["value"] * 2
-                assert decoded == expected, (
-                    f"[{router_lang}] double failed: expected {expected}, got {decoded}"
+                assert result == expected, (
+                    f"[{router_lang}] double failed: expected {expected}, got {result}"
                 )
             else:
                 send_request(writer, req_id, cap_urn, payload)
