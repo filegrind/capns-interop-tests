@@ -616,18 +616,20 @@ def go_plugin(plugin_binaries):
 def throughput_results(request):
     """Session-scoped fixture to collect throughput benchmark results.
 
-    Tests can call throughput_results.record(host_lang, plugin_lang, mb_per_sec, status)
+    Tests can call throughput_results.record(router_lang, host_lang, plugin_lang, mb_per_sec, status)
     to record their results. At session end, pytest_sessionfinish writes the matrix to JSON.
     """
     class ThroughputCollector:
         def __init__(self):
             self.data = {}
 
-        def record(self, host_lang, plugin_lang, mb_per_sec=None, status="pass"):
-            """Record throughput result for host-plugin combination."""
-            if host_lang not in self.data:
-                self.data[host_lang] = {}
-            self.data[host_lang][plugin_lang] = {
+        def record(self, router_lang, host_lang, plugin_lang, mb_per_sec=None, status="pass"):
+            """Record throughput result for router-host-plugin combination."""
+            if router_lang not in self.data:
+                self.data[router_lang] = {}
+            if host_lang not in self.data[router_lang]:
+                self.data[router_lang][host_lang] = {}
+            self.data[router_lang][host_lang][plugin_lang] = {
                 "mb_per_sec": mb_per_sec,
                 "status": status
             }

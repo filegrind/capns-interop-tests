@@ -22,7 +22,7 @@ from capns_interop.framework.frame_test_helper import (
 )
 from capns_interop.framework.test_topology import TestTopology
 
-SUPPORTED_ROUTER_LANGS = ["rust"]
+SUPPORTED_ROUTER_LANGS = ["rust", "swift"]  # Both routers
 SUPPORTED_HOST_LANGS = ["rust", "go", "swift"]  # All relay hosts (no python relay host)
 SUPPORTED_PLUGIN_LANGS = ["rust", "go", "python", "swift"]
 
@@ -171,14 +171,14 @@ def test_large_payload_throughput(router_binaries, relay_host_binaries, plugin_b
             )
 
             # Record throughput result for matrix display
-            throughput_results.record(host_lang, plugin_lang, mb_per_sec, "pass")
+            throughput_results.record(router_lang, host_lang, plugin_lang, mb_per_sec, "pass")
 
             assert mb_per_sec > 1, (
                 f"[{router_lang}/{host_lang}/{plugin_lang}] throughput too low: {mb_per_sec:.2f} MB/s"
             )
     except Exception as e:
         # Record failure
-        throughput_results.record(host_lang, plugin_lang, None, "fail")
+        throughput_results.record(router_lang, host_lang, plugin_lang, None, "fail")
         raise
 
 

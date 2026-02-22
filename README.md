@@ -87,23 +87,38 @@ python3 show_throughput_matrix.py
 
 ## Throughput Matrix
 
-Performance tests generate a throughput matrix showing MB/s for each host-plugin combination:
+Performance tests generate a 3D throughput matrix showing MB/s for each router-host-plugin combination.
+
+One matrix is displayed per router, showing host × plugin performance:
 
 ```
-THROUGHPUT MATRIX (MB/s)
+================================================================================
+THROUGHPUT MATRIX (MB/s) - Router: RUST
+================================================================================
 
      host ↓ \ plugin →      rust        go    python     swift
   ────────────────────  ────────  ────────  ────────  ────────
-                  rust    106.96     97.99      6.43     20.44
-                    go         X         X         X         X
-                python        --        --        --        --
-                 swift    101.35    105.44      6.46     20.65
+                  rust    108.12    101.16      2.68     20.36
+                    go     95.52     85.26      4.56     20.60
+                 swift    107.81     95.99      4.43     19.97
 
+================================================================================
+THROUGHPUT MATRIX (MB/s) - Router: SWIFT
+================================================================================
+
+     host ↓ \ plugin →      rust        go    python     swift
+  ────────────────────  ────────  ────────  ────────  ────────
+                  rust     17.22     16.62      5.00     10.30
+                    go     16.89     16.66      2.36     10.11
+                 swift     16.63     16.32      2.77     10.06
+
+================================================================================
 RANKING (fastest to slowest)
+================================================================================
 
-  rust-rust              106.96 MB/s
-  swift-go               105.44 MB/s
-  swift-rust             101.35 MB/s
+  rust-rust-rust                   108.12 MB/s
+  rust-swift-rust                  107.81 MB/s
+  rust-rust-go                     101.16 MB/s
   ...
 ```
 

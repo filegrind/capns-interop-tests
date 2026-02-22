@@ -25,51 +25,83 @@ def print_throughput_matrix(json_file):
         data = json.load(f)
 
     langs = ["rust", "go", "python", "swift"]
+    routers = sorted(data.keys())
 
-    # Header
-    print()
-    print("="*80)
-    print("THROUGHPUT MATRIX (MB/s)")
-    print("="*80)
-    print()
-    print(f"  {'host ↓ \\ plugin →':>20}", end="")
-    for p in langs:
-        print(f"  {p:>8}", end="")
-    print()
-    print(f"  {'─' * 20}", end="")
-    for _ in langs:
-        print(f"  {'─' * 8}", end="")
-    print()
+    # Print one matrix per router
+    all_rows = []
+    for router in routers:
+        router_data = data[router]
 
-    # Rows
-    rows = []
-    for h in langs:
-        print(f"  {h:>20}", end="")
+        # Header
+        print()
+        print("="*80)
+        print(f"THROUGHPUT MATRIX (MB/s) - Router: {router.upper()}")
+        print("="*80)
+        print()
+        print(f"  {'host ↓ \\ plugin →':>20}", end="")
         for p in langs:
-            cell = data.get(h, {}).get(p)
-            if cell is None:
-                print(f"  {'--':>8}", end="")
-            elif cell.get("status") == "pass" and cell.get("mb_per_sec") is not None:
-                mb_s = cell["mb_per_sec"]
-                print(f"  {mb_s:>8.2f}", end="")
-                rows.append((f"{h}-{p}", mb_s))
-            else:
-                print(f"  {'X':>8}", end="")
-                rows.append((f"{h}-{p}", None))
+            print(f"  {p:>8}", end="")
+        print()
+        print(f"  {'─' * 20}", end="")
+        for _ in langs:
+            print(f"  {'─' * 8}", end="")
         print()
 
-    # Sorted ranking
+        # Rows
+        for h in langs:
+            print(f"  {h:>20}", end="")
+            for p in langs:
+                cell = router_data.get(h, {}).get(p)
+                if cell is None:
+                    print(f"  {'--':>8}", end="")
+                elif cell.get("status") == "pass" and cell.get("mb_per_sec") is not None:
+                    mb_s = cell["mb_per_sec"]
+                    print(f"  {mb_s:>8.2f}", end="")
+                    all_rows.append((f"{router}-{h}-{p}", mb_s))
+                else:
+                    print(f"  {'X':>8}", end="")
+                    all_rows.append((f"{router}-{h}-{p}", None))
+            print()
+
+    # Sorted ranking across all routers
     print()
     print("="*80)
     print("RANKING (fastest to slowest)")
     print("="*80)
     print()
-    rows.sort(key=lambda r: (r[1] is None, -(r[1] or 0)))
-    for label, val in rows:
+    all_rows.sort(key=lambda r: (r[1] is None, -(r[1] or 0)))
+    for label, val in all_rows:
         if val is not None:
-            print(f"  {label:<20} {val:>8.2f} MB/s")
+            print(f"  {label:<30} {val:>8.2f} MB/s")
         else:
-            print(f"  {label:<20} {'FAIL':>8}")
+            print(f"  {label:<30} {'FAIL':>8}")
+    print()
+
+    # Bar chart (slowest to fastest)
+    print()
+    print("="*80)
+    print("BAR CHART (slowest to fastest)")
+    print("="*80)
+    print()
+
+    # Filter out failures and sort slowest to fastest
+    successful_rows = [(label, val) for label, val in all_rows if val is not None]
+    successful_rows.sort(key=lambda r: r[1])  # slowest first
+
+    if not successful_rows:
+        print("  No successful tests to chart")
+        print()
+        return
+
+    # Find max value for scaling
+    max_val = max(val for _, val in successful_rows)
+    bar_width = 60  # max characters for bar
+
+    for label, val in successful_rows:
+        # Scale bar proportionally to max value
+        bar_len = int((val / max_val) * bar_width) if max_val > 0 else 0
+        bar = "█" * bar_len
+        print(f"  {label:<30} {bar} {val:>6.2f} MB/s")
     print()
 
 
