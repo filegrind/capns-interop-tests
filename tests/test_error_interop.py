@@ -50,11 +50,16 @@ def test_throw_error(router_binaries, relay_host_binaries, plugin_binaries, rout
             f"[{router_lang}/{host_lang}/{plugin_lang}] expected ERR frame, got: "
             f"{[f.frame_type for f in frames]}"
         )
-        # Verify routing_id is present for relay routing
+        # Verify ERR frame has correct request ID (routing_id/XID is internal, not visible to engine)
         err_frame = err_frames[0]
-        assert err_frame.routing_id == req_id, (
-            f"[{router_lang}/{host_lang}/{plugin_lang}] ERR frame missing routing_id (XID): "
-            f"expected {req_id}, got {err_frame.routing_id}"
+        assert err_frame.id == req_id, (
+            f"[{router_lang}/{host_lang}/{plugin_lang}] ERR frame has wrong ID: "
+            f"expected {req_id}, got {err_frame.id}"
+        )
+        # Verify routing_id is NOT present (XIDs are internal to relay layer)
+        assert err_frame.routing_id is None, (
+            f"[{router_lang}/{host_lang}/{plugin_lang}] ERR frame has routing_id (XID should be internal): "
+            f"got {err_frame.routing_id}"
         )
 
 
@@ -82,11 +87,16 @@ def test_invalid_cap(router_binaries, relay_host_binaries, plugin_binaries, rout
             f"[{router_lang}/{host_lang}/{plugin_lang}] expected ERR for unknown cap, got: "
             f"{[f.frame_type for f in frames]}"
         )
-        # Verify routing_id is present for relay routing
+        # Verify ERR frame has correct request ID (routing_id/XID is internal, not visible to engine)
         err_frame = err_frames[0]
-        assert err_frame.routing_id == req_id, (
-            f"[{router_lang}/{host_lang}/{plugin_lang}] ERR frame missing routing_id (XID): "
-            f"expected {req_id}, got {err_frame.routing_id}"
+        assert err_frame.id == req_id, (
+            f"[{router_lang}/{host_lang}/{plugin_lang}] ERR frame has wrong ID: "
+            f"expected {req_id}, got {err_frame.id}"
+        )
+        # Verify routing_id is NOT present (XIDs are internal to relay layer)
+        assert err_frame.routing_id is None, (
+            f"[{router_lang}/{host_lang}/{plugin_lang}] ERR frame has routing_id (XID should be internal): "
+            f"got {err_frame.routing_id}"
         )
 
 
@@ -114,11 +124,16 @@ def test_malformed_payload(router_binaries, relay_host_binaries, plugin_binaries
             f"[{router_lang}/{host_lang}/{plugin_lang}] expected ERR for malformed JSON, got: "
             f"{[f.frame_type for f in frames]}"
         )
-        # Verify routing_id is present for relay routing
+        # Verify ERR frame has correct request ID (routing_id/XID is internal, not visible to engine)
         err_frame = err_frames[0]
-        assert err_frame.routing_id == req_id, (
-            f"[{router_lang}/{host_lang}/{plugin_lang}] ERR frame missing routing_id (XID): "
-            f"expected {req_id}, got {err_frame.routing_id}"
+        assert err_frame.id == req_id, (
+            f"[{router_lang}/{host_lang}/{plugin_lang}] ERR frame has wrong ID: "
+            f"expected {req_id}, got {err_frame.id}"
+        )
+        # Verify routing_id is NOT present (XIDs are internal to relay layer)
+        assert err_frame.routing_id is None, (
+            f"[{router_lang}/{host_lang}/{plugin_lang}] ERR frame has routing_id (XID should be internal): "
+            f"got {err_frame.routing_id}"
         )
 
 
