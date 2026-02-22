@@ -23,7 +23,7 @@ class PeerEchoScenario(Scenario):
 
             # Plugin will call back to host's echo with the raw bytes
             # peer_echo handler sends the input as-is to host's echo
-            response = await host.call_with_arguments(TEST_CAPS["peer_echo"], [CapArgumentValue("media:bytes", test_input)])
+            response = await host.call_with_arguments(TEST_CAPS["peer_echo"], [CapArgumentValue("media:", test_input)])
 
             output = response.final_payload()
             # The plugin echoes back what the host echo returned
@@ -76,7 +76,7 @@ class BidirectionalEchoScenario(Scenario):
             test_values = [b"Test1", b"Test2", b"Test3"]
 
             for test_val in test_values:
-                response = await host.call_with_arguments(TEST_CAPS["peer_echo"], [CapArgumentValue("media:bytes", test_val)])
+                response = await host.call_with_arguments(TEST_CAPS["peer_echo"], [CapArgumentValue("media:", test_val)])
 
                 output = response.final_payload()
                 assert output == test_val, f"Expected {test_val!r}, got {output!r}"

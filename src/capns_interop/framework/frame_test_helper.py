@@ -32,7 +32,7 @@ def send_request(
     cap_urn: str,
     payload: bytes,
     content_type: str = "application/octet-stream",
-    media_urn: str = "media:bytes",
+    media_urn: str = "media:",
 ) -> None:
     """Send a complete request: REQ(empty) + STREAM_START + CHUNK(s) + STREAM_END + END.
 

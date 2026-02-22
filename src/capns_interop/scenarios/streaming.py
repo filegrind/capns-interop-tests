@@ -102,7 +102,7 @@ class BinaryDataScenario(Scenario):
             # Create data with all possible byte values
             test_data = bytes(range(256)) * 100  # 25.6 KB
 
-            response = await host.call_with_arguments(TEST_CAPS["binary_echo"], [CapArgumentValue("media:bytes", test_data)])
+            response = await host.call_with_arguments(TEST_CAPS["binary_echo"], [CapArgumentValue("media:", test_data)])
 
             output = response.final_payload()
             assert output == test_data, f"Binary data mismatch (len: {len(output)} vs {len(test_data)})"

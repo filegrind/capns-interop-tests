@@ -4,7 +4,7 @@ import Foundation
 func buildManifest() -> [String: Any] {
     let caps: [[String: Any]] = [
         [
-            "urn": "cap:in=\"media:bytes\";op=read_file_info;out=\"media:json\"",
+            "urn": "cap:in=\"media:\";op=read_file_info;out=\"media:json\"",
             "title": "Read File Info",
             "command": "read_file_info",
             "args": [
@@ -12,7 +12,7 @@ func buildManifest() -> [String: Any] {
                     "media_urn": "media:file-path;textable;form=scalar",
                     "required": true,
                     "sources": [
-                        ["stdin": "media:bytes"],
+                        ["stdin": "media:"],
                         ["position": 0]
                     ],
                     "arg_description": "Path to file to read"

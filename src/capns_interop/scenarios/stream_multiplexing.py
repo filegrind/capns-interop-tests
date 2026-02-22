@@ -31,7 +31,7 @@ class SingleStreamScenario(Scenario):
         async def test():
             test_data = b"Hello stream multiplexing!"
 
-            response = await host.call_with_arguments(TEST_CAPS["echo"], [CapArgumentValue("media:bytes", test_data)])
+            response = await host.call_with_arguments(TEST_CAPS["echo"], [CapArgumentValue("media:", test_data)])
 
             output = response.final_payload()
             assert output == test_data, f"Expected {test_data!r}, got {output!r}"
@@ -54,7 +54,7 @@ class MultipleStreamsScenario(Scenario):
         async def test():
             test_data = b"Multiple streams test"
 
-            response = await host.call_with_arguments(TEST_CAPS["echo"], [CapArgumentValue("media:bytes", test_data)])
+            response = await host.call_with_arguments(TEST_CAPS["echo"], [CapArgumentValue("media:", test_data)])
 
             output = response.final_payload()
             assert output == test_data, f"Expected {test_data!r}, got {output!r}"
@@ -77,7 +77,7 @@ class EmptyStreamScenario(Scenario):
         async def test():
             test_data = b""
 
-            response = await host.call_with_arguments(TEST_CAPS["echo"], [CapArgumentValue("media:bytes", test_data)])
+            response = await host.call_with_arguments(TEST_CAPS["echo"], [CapArgumentValue("media:", test_data)])
 
             output = response.final_payload()
             assert output == test_data, f"Expected empty, got {output!r}"
@@ -100,7 +100,7 @@ class InterleavedStreamsScenario(Scenario):
         async def test():
             test_data = bytes(range(256))
 
-            response = await host.call_with_arguments(TEST_CAPS["binary_echo"], [CapArgumentValue("media:bytes", test_data)])
+            response = await host.call_with_arguments(TEST_CAPS["binary_echo"], [CapArgumentValue("media:", test_data)])
 
             output = response.final_payload()
             assert output == test_data, "Binary data corrupted through stream multiplexing"
@@ -123,7 +123,7 @@ class StreamErrorHandlingScenario(Scenario):
         async def test():
             test_data = b"Error handling test"
 
-            response = await host.call_with_arguments(TEST_CAPS["echo"], [CapArgumentValue("media:bytes", test_data)])
+            response = await host.call_with_arguments(TEST_CAPS["echo"], [CapArgumentValue("media:", test_data)])
 
             output = response.final_payload()
             assert output == test_data, f"Expected {test_data!r}, got {output!r}"
@@ -147,7 +147,7 @@ class LargeMultiStreamScenario(Scenario):
             pattern = b"ABCDEFGHIJ" * 1024  # 10KB pattern
             test_data = pattern * 100  # 1MB total
 
-            response = await host.call_with_arguments(TEST_CAPS["echo"], [CapArgumentValue("media:bytes", test_data)])
+            response = await host.call_with_arguments(TEST_CAPS["echo"], [CapArgumentValue("media:", test_data)])
 
             output = response.final_payload()
             assert len(output) == len(test_data), f"Size mismatch: {len(output)} != {len(test_data)}"
@@ -171,7 +171,7 @@ class StreamOrderPreservationScenario(Scenario):
         async def test():
             test_data = bytes([i % 256 for i in range(10000)])
 
-            response = await host.call_with_arguments(TEST_CAPS["binary_echo"], [CapArgumentValue("media:bytes", test_data)])
+            response = await host.call_with_arguments(TEST_CAPS["binary_echo"], [CapArgumentValue("media:", test_data)])
 
             output = response.final_payload()
             assert output == test_data, "Chunk ordering violated"

@@ -30,7 +30,7 @@ def test_stream_start_constructor():
     """Test Frame.stream_start() constructor."""
     req_id = MessageId.new_uuid()
     stream_id = "test-stream-123"
-    media_urn = "media:bytes"
+    media_urn = "media:"
 
     frame = Frame.stream_start(req_id, stream_id, media_urn)
 
@@ -93,7 +93,7 @@ def test_stream_frames_with_wire_format():
     req_id = MessageId.new_uuid()
 
     # Write STREAM_START
-    start_frame = Frame.stream_start(req_id, "stream-1", "media:bytes")
+    start_frame = Frame.stream_start(req_id, "stream-1", "media:")
     writer.write(start_frame)
 
     # Write STREAM_END
@@ -108,7 +108,7 @@ def test_stream_frames_with_wire_format():
     assert decoded_start is not None
     assert decoded_start.frame_type == FrameType.STREAM_START
     assert decoded_start.stream_id == "stream-1"
-    assert decoded_start.media_urn == "media:bytes"
+    assert decoded_start.media_urn == "media:"
 
     decoded_end = reader.read()
     assert decoded_end is not None
@@ -127,7 +127,7 @@ def test_multiple_stream_ids_preserved():
 
     # Write multiple stream starts
     for sid in stream_ids:
-        frame = Frame.stream_start(req_id, sid, "media:bytes")
+        frame = Frame.stream_start(req_id, sid, "media:")
         writer.write(frame)
 
     # Read back and verify
@@ -143,7 +143,7 @@ def test_multiple_stream_ids_preserved():
 def test_empty_stream_id_allowed():
     """Test that empty stream_id is allowed (validation happens at protocol level)."""
     req_id = MessageId.new_uuid()
-    frame = Frame.stream_start(req_id, "", "media:bytes")
+    frame = Frame.stream_start(req_id, "", "media:")
 
     assert frame.stream_id == ""
 

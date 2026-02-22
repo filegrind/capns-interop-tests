@@ -28,7 +28,7 @@ class LatencyBenchmarkScenario(Scenario):
                 test_input = b"benchmark"
 
                 start = time.perf_counter()
-                response = await host.call_with_arguments(TEST_CAPS["echo"], [CapArgumentValue("media:bytes", test_input)])
+                response = await host.call_with_arguments(TEST_CAPS["echo"], [CapArgumentValue("media:", test_input)])
                 output = response.final_payload()
                 duration = (time.perf_counter() - start) * 1000  # ms
 
@@ -82,7 +82,7 @@ class ThroughputBenchmarkScenario(Scenario):
             count = 0
 
             while (time.perf_counter() - start) < duration_seconds:
-                response = await host.call_with_arguments(TEST_CAPS["echo"], [CapArgumentValue("media:bytes", test_input)])
+                response = await host.call_with_arguments(TEST_CAPS["echo"], [CapArgumentValue("media:", test_input)])
                 output = response.final_payload()
                 assert output == test_input
                 count += 1

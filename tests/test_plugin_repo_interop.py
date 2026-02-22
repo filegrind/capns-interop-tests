@@ -59,7 +59,7 @@ SAMPLE_REGISTRY_V3 = {
             "author": "Test Author",
             "category": "media",
             "caps": [
-                'cap:in="media:bytes";op=convert;out="media:string;textable;form=scalar"'
+                'cap:in="media:";op=convert;out="media:string;textable;form=scalar"'
             ],
             "versions": {
                 "2.0.0": {

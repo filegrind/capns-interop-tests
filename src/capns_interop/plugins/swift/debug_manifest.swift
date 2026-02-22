@@ -11,7 +11,7 @@ func buildManifest() -> [String: Any] {
                     "media_urn": "media:file-path;textable;form=scalar",
                     "required": true,
                     "sources": [
-                        ["stdin": "media:bytes"],
+                        ["stdin": "media:"],
                         ["position": 0]
                     ],
                     "arg_description": "Path to file to read"

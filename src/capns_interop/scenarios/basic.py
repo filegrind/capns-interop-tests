@@ -20,7 +20,7 @@ class EchoScenario(Scenario):
     async def execute(self, host, plugin) -> ScenarioResult:
         async def run():
             test_input = b"Hello, World!"
-            response = await host.call_with_arguments(TEST_CAPS["echo"], [CapArgumentValue("media:bytes", test_input)])
+            response = await host.call_with_arguments(TEST_CAPS["echo"], [CapArgumentValue("media:", test_input)])
 
             # Get the final payload
             output = response.final_payload()
@@ -74,7 +74,7 @@ class BinaryEchoScenario(Scenario):
             # Test with various binary patterns
             test_data = bytes(range(256))  # All byte values
 
-            response = await host.call_with_arguments(TEST_CAPS["binary_echo"], [CapArgumentValue("media:bytes", test_data)])
+            response = await host.call_with_arguments(TEST_CAPS["binary_echo"], [CapArgumentValue("media:", test_data)])
 
             output = response.final_payload()
             assert output == test_data, f"Binary data mismatch"

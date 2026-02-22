@@ -347,7 +347,7 @@ impl RustTestHost {
 
         let payload_mb = cmd["payload_mb"].as_u64().unwrap_or(5) as usize;
         let payload_size = payload_mb * 1024 * 1024;
-        let cap_urn = r#"cap:in="media:number;form=scalar";op=generate_large;out="media:bytes""#;
+        let cap_urn = r#"cap:in="media:number;form=scalar";op=generate_large;out="media:""#;
 
         let input_json = serde_json::to_vec(&json!({"value": payload_size})).unwrap();
         let args = vec![CapArgumentValue::new("media:json".to_string(), input_json)];

@@ -215,8 +215,8 @@ func buildManifest() *bifaci.CapManifest {
 		*cap.NewCap(
 			mustBuild(urn.NewCapUrnBuilder().
 				Tag("op", "echo").
-				InSpec("media:bytes").
-				OutSpec("media:bytes")),
+				InSpec("media:").
+				OutSpec("media:")),
 			"Echo", "echo",
 		),
 		*cap.NewCap(
@@ -236,8 +236,8 @@ func buildManifest() *bifaci.CapManifest {
 		*cap.NewCap(
 			mustBuild(urn.NewCapUrnBuilder().
 				Tag("op", "binary_echo").
-				InSpec("media:product-image;bytes").
-				OutSpec("media:product-image;bytes")),
+				InSpec("media:product-image").
+				OutSpec("media:product-image")),
 			"Binary Echo", "binary_echo",
 		),
 		*cap.NewCap(
@@ -251,7 +251,7 @@ func buildManifest() *bifaci.CapManifest {
 			mustBuild(urn.NewCapUrnBuilder().
 				Tag("op", "generate_large").
 				InSpec("media:report-size;json;textable;form=map").
-				OutSpec("media:sales-report;bytes")),
+				OutSpec("media:sales-report")),
 			"Generate Large", "generate_large",
 		),
 		*cap.NewCap(
@@ -306,26 +306,26 @@ func buildManifest() *bifaci.CapManifest {
 		*cap.NewCap(
 			mustBuild(urn.NewCapUrnBuilder().
 				Tag("op", "process_large").
-				InSpec("media:uploaded-document;bytes").
+				InSpec("media:uploaded-document").
 				OutSpec("media:document-info;json;textable;form=map")),
 			"Process Large", "process_large",
 		),
 		*cap.NewCap(
 			mustBuild(urn.NewCapUrnBuilder().
 				Tag("op", "hash_incoming").
-				InSpec("media:uploaded-document;bytes").
+				InSpec("media:uploaded-document").
 				OutSpec("media:document-hash;textable;form=scalar")),
 			"Hash Incoming", "hash_incoming",
 		),
 		*cap.NewCap(
 			mustBuild(urn.NewCapUrnBuilder().
 				Tag("op", "verify_binary").
-				InSpec("media:package-data;bytes").
+				InSpec("media:package-data").
 				OutSpec("media:verification-status;textable;form=scalar")),
 			"Verify Binary", "verify_binary",
 		),
 		func() cap.Cap {
-			stdin := "media:bytes"
+			stdin := "media:"
 			position := 0
 			argDesc := "Path to invoice file to read"
 
@@ -718,12 +718,12 @@ func main() {
 	}
 
 	// Register all handlers as CapOp types (mirrors Rust register_op_type::<T>())
-	runtime.RegisterOp(`cap:in="media:bytes";op=echo;out="media:bytes"`, &EchoOp{})
+	runtime.RegisterOp(`cap:in="media:";op=echo;out="media:"`, &EchoOp{})
 	runtime.RegisterOp(`cap:in="media:order-value;json;textable;form=map";op=double;out="media:loyalty-points;integer;textable;numeric;form=scalar"`, &DoubleOp{})
 	runtime.RegisterOp(`cap:in="media:update-count;json;textable;form=map";op=stream_chunks;out="media:order-updates;textable"`, &StreamChunksOp{})
-	runtime.RegisterOp(`cap:in="media:product-image;bytes";op=binary_echo;out="media:product-image;bytes"`, &BinaryEchoOp{})
+	runtime.RegisterOp(`cap:in="media:product-image";op=binary_echo;out="media:product-image"`, &BinaryEchoOp{})
 	runtime.RegisterOp(`cap:in="media:payment-delay-ms;json;textable;form=map";op=slow_response;out="media:payment-result;textable;form=scalar"`, &SlowResponseOp{})
-	runtime.RegisterOp(`cap:in="media:report-size;json;textable;form=map";op=generate_large;out="media:sales-report;bytes"`, &GenerateLargeOp{})
+	runtime.RegisterOp(`cap:in="media:report-size;json;textable;form=map";op=generate_large;out="media:sales-report"`, &GenerateLargeOp{})
 	runtime.RegisterOp(`cap:in="media:fulfillment-steps;json;textable;form=map";op=with_status;out="media:fulfillment-status;textable;form=scalar"`, &WithStatusOp{})
 	runtime.RegisterOp(`cap:in="media:payment-error;json;textable;form=map";op=throw_error;out=media:void`, &ThrowErrorOp{})
 	runtime.RegisterOp(`cap:in="media:customer-message;textable;form=scalar";op=peer_echo;out="media:customer-message;textable;form=scalar"`, &PeerEchoOp{})
@@ -731,9 +731,9 @@ func main() {
 	runtime.RegisterOp(`cap:in="media:monitoring-duration-ms;json;textable;form=map";op=heartbeat_stress;out="media:health-status;textable;form=scalar"`, &HeartbeatStressOp{})
 	runtime.RegisterOp(`cap:in="media:order-batch-size;json;textable;form=map";op=concurrent_stress;out="media:batch-result;textable;form=scalar"`, &ConcurrentStressOp{})
 	runtime.RegisterOp(`cap:in=media:void;op=get_manifest;out="media:service-capabilities;json;textable;form=map"`, &GetManifestOp{})
-	runtime.RegisterOp(`cap:in="media:uploaded-document;bytes";op=process_large;out="media:document-info;json;textable;form=map"`, &ProcessLargeOp{})
-	runtime.RegisterOp(`cap:in="media:uploaded-document;bytes";op=hash_incoming;out="media:document-hash;textable;form=scalar"`, &HashIncomingOp{})
-	runtime.RegisterOp(`cap:in="media:package-data;bytes";op=verify_binary;out="media:verification-status;textable;form=scalar"`, &VerifyBinaryOp{})
+	runtime.RegisterOp(`cap:in="media:uploaded-document";op=process_large;out="media:document-info;json;textable;form=map"`, &ProcessLargeOp{})
+	runtime.RegisterOp(`cap:in="media:uploaded-document";op=hash_incoming;out="media:document-hash;textable;form=scalar"`, &HashIncomingOp{})
+	runtime.RegisterOp(`cap:in="media:package-data";op=verify_binary;out="media:verification-status;textable;form=scalar"`, &VerifyBinaryOp{})
 	runtime.RegisterOp(`cap:in="media:invoice;file-path;textable;form=scalar";op=read_file_info;out="media:invoice-metadata;json;textable;form=map"`, &ReadFileInfoOp{})
 
 	if err := runtime.Run(); err != nil {

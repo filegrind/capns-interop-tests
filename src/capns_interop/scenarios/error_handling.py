@@ -106,7 +106,7 @@ class GracefulShutdownScenario(Scenario):
             # Perform a few operations
             for i in range(3):
                 test_input = f"test-{i}".encode()
-                response = await host.call_with_arguments(TEST_CAPS["echo"], [CapArgumentValue("media:bytes", test_input)])
+                response = await host.call_with_arguments(TEST_CAPS["echo"], [CapArgumentValue("media:", test_input)])
                 output = response.final_payload()
                 assert output == test_input
 

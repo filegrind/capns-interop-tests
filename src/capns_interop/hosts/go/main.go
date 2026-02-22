@@ -310,7 +310,7 @@ func (h *goTestHost) handleThroughput(cmd map[string]interface{}) (map[string]in
 		payloadMB = int(v)
 	}
 	payloadSize := payloadMB * 1024 * 1024
-	capUrn := `cap:in="media:number;form=scalar";op=generate_large;out="media:bytes"`
+	capUrn := `cap:in="media:number;form=scalar";op=generate_large;out="media:"`
 
 	inputJSON, _ := json.Marshal(map[string]interface{}{"value": payloadSize})
 	args := []capns.CapArgumentValue{capns.NewCapArgumentValue("media:json", inputJSON)}

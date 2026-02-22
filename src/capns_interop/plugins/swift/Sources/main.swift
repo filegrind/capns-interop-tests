@@ -19,7 +19,7 @@ func buildManifest() -> [String: Any] {
             "command": "identity"
         ],
         [
-            "urn": "cap:in=\"media:bytes\";op=echo;out=\"media:bytes\"",
+            "urn": "cap:in=\"media:\";op=echo;out=\"media:\"",
             "title": "Echo",
             "command": "echo"
         ],
@@ -34,7 +34,7 @@ func buildManifest() -> [String: Any] {
             "command": "stream_chunks"
         ],
         [
-            "urn": "cap:in=\"media:product-image;bytes\";op=binary_echo;out=\"media:product-image;bytes\"",
+            "urn": "cap:in=\"media:product-image\";op=binary_echo;out=\"media:product-image\"",
             "title": "Binary Echo",
             "command": "binary_echo"
         ],
@@ -44,7 +44,7 @@ func buildManifest() -> [String: Any] {
             "command": "slow_response"
         ],
         [
-            "urn": "cap:in=\"media:report-size;json;textable;form=map\";op=generate_large;out=\"media:sales-report;bytes\"",
+            "urn": "cap:in=\"media:report-size;json;textable;form=map\";op=generate_large;out=\"media:sales-report\"",
             "title": "Generate Large",
             "command": "generate_large"
         ],
@@ -84,17 +84,17 @@ func buildManifest() -> [String: Any] {
             "command": "get_manifest"
         ],
         [
-            "urn": "cap:in=\"media:uploaded-document;bytes\";op=process_large;out=\"media:document-info;json;textable;form=map\"",
+            "urn": "cap:in=\"media:uploaded-document\";op=process_large;out=\"media:document-info;json;textable;form=map\"",
             "title": "Process Large",
             "command": "process_large"
         ],
         [
-            "urn": "cap:in=\"media:uploaded-document;bytes\";op=hash_incoming;out=\"media:document-hash;textable;form=scalar\"",
+            "urn": "cap:in=\"media:uploaded-document\";op=hash_incoming;out=\"media:document-hash;textable;form=scalar\"",
             "title": "Hash Incoming",
             "command": "hash_incoming"
         ],
         [
-            "urn": "cap:in=\"media:package-data;bytes\";op=verify_binary;out=\"media:verification-status;textable;form=scalar\"",
+            "urn": "cap:in=\"media:package-data\";op=verify_binary;out=\"media:verification-status;textable;form=scalar\"",
             "title": "Verify Binary",
             "command": "verify_binary"
         ],
@@ -107,7 +107,7 @@ func buildManifest() -> [String: Any] {
                     "media_urn": "media:invoice;file-path;textable;form=scalar",
                     "required": true,
                     "sources": [
-                        ["stdin": "media:bytes"],
+                        ["stdin": "media:"],
                         ["position": 0]
                     ],
                     "arg_description": "Path to invoice file to read"
@@ -561,12 +561,12 @@ let manifestJSON = buildManifestJSON()
 let runtime = PluginRuntime(manifestJSON: manifestJSON)
 
 // Register all handlers as Op types
-runtime.register_op_type(capUrn: "cap:in=\"media:bytes\";op=echo;out=\"media:bytes\"", make: EchoOp.init)
+runtime.register_op_type(capUrn: "cap:in=\"media:\";op=echo;out=\"media:\"", make: EchoOp.init)
 runtime.register_op_type(capUrn: "cap:in=\"media:order-value;json;textable;form=map\";op=double;out=\"media:loyalty-points;integer;textable;numeric;form=scalar\"", make: DoubleOp.init)
 runtime.register_op_type(capUrn: "cap:in=\"media:update-count;json;textable;form=map\";op=stream_chunks;out=\"media:order-updates;textable\"", make: StreamChunksOp.init)
-runtime.register_op_type(capUrn: "cap:in=\"media:product-image;bytes\";op=binary_echo;out=\"media:product-image;bytes\"", make: BinaryEchoOp.init)
+runtime.register_op_type(capUrn: "cap:in=\"media:product-image\";op=binary_echo;out=\"media:product-image\"", make: BinaryEchoOp.init)
 runtime.register_op_type(capUrn: "cap:in=\"media:payment-delay-ms;json;textable;form=map\";op=slow_response;out=\"media:payment-result;textable;form=scalar\"", make: SlowResponseOp.init)
-runtime.register_op_type(capUrn: "cap:in=\"media:report-size;json;textable;form=map\";op=generate_large;out=\"media:sales-report;bytes\"", make: GenerateLargeOp.init)
+runtime.register_op_type(capUrn: "cap:in=\"media:report-size;json;textable;form=map\";op=generate_large;out=\"media:sales-report\"", make: GenerateLargeOp.init)
 runtime.register_op_type(capUrn: "cap:in=\"media:fulfillment-steps;json;textable;form=map\";op=with_status;out=\"media:fulfillment-status;textable;form=scalar\"", make: WithStatusOp.init)
 runtime.register_op_type(capUrn: "cap:in=\"media:payment-error;json;textable;form=map\";op=throw_error;out=\"media:void\"", make: ThrowErrorOp.init)
 runtime.register_op_type(capUrn: "cap:in=\"media:customer-message;textable;form=scalar\";op=peer_echo;out=\"media:customer-message;textable;form=scalar\"", make: PeerEchoOp.init)
@@ -574,9 +574,9 @@ runtime.register_op_type(capUrn: "cap:in=\"media:order-value;json;textable;form=
 runtime.register_op_type(capUrn: "cap:in=\"media:monitoring-duration-ms;json;textable;form=map\";op=heartbeat_stress;out=\"media:health-status;textable;form=scalar\"", make: HeartbeatStressOp.init)
 runtime.register_op_type(capUrn: "cap:in=\"media:order-batch-size;json;textable;form=map\";op=concurrent_stress;out=\"media:batch-result;textable;form=scalar\"", make: ConcurrentStressOp.init)
 runtime.register_op_type(capUrn: "cap:in=\"media:void\";op=get_manifest;out=\"media:service-capabilities;json;textable;form=map\"", make: GetManifestOp.init)
-runtime.register_op_type(capUrn: "cap:in=\"media:uploaded-document;bytes\";op=process_large;out=\"media:document-info;json;textable;form=map\"", make: ProcessLargeOp.init)
-runtime.register_op_type(capUrn: "cap:in=\"media:uploaded-document;bytes\";op=hash_incoming;out=\"media:document-hash;textable;form=scalar\"", make: HashIncomingOp.init)
-runtime.register_op_type(capUrn: "cap:in=\"media:package-data;bytes\";op=verify_binary;out=\"media:verification-status;textable;form=scalar\"", make: VerifyBinaryOp.init)
+runtime.register_op_type(capUrn: "cap:in=\"media:uploaded-document\";op=process_large;out=\"media:document-info;json;textable;form=map\"", make: ProcessLargeOp.init)
+runtime.register_op_type(capUrn: "cap:in=\"media:uploaded-document\";op=hash_incoming;out=\"media:document-hash;textable;form=scalar\"", make: HashIncomingOp.init)
+runtime.register_op_type(capUrn: "cap:in=\"media:package-data\";op=verify_binary;out=\"media:verification-status;textable;form=scalar\"", make: VerifyBinaryOp.init)
 runtime.register_op_type(capUrn: "cap:in=\"media:invoice;file-path;textable;form=scalar\";op=read_file_info;out=\"media:invoice-metadata;json;textable;form=map\"", make: ReadFileInfoOp.init)
 
 try! runtime.run()

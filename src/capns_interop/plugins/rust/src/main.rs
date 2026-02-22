@@ -56,8 +56,8 @@ fn build_manifest() -> CapManifest {
         Cap::new(
             CapUrnBuilder::new()
                 .tag("op", "echo")
-                .in_spec("media:bytes")
-                .out_spec("media:bytes")
+                .in_spec("media:")
+                .out_spec("media:")
                 .build()
                 .unwrap(),
             "Echo".to_string(),
@@ -86,8 +86,8 @@ fn build_manifest() -> CapManifest {
         Cap::new(
             CapUrnBuilder::new()
                 .tag("op", "binary_echo")
-                .in_spec("media:product-image;bytes")
-                .out_spec("media:product-image;bytes")
+                .in_spec("media:product-image")
+                .out_spec("media:product-image")
                 .build()
                 .unwrap(),
             "Binary Echo".to_string(),
@@ -107,7 +107,7 @@ fn build_manifest() -> CapManifest {
             CapUrnBuilder::new()
                 .tag("op", "generate_large")
                 .in_spec("media:report-size;json;textable;form=map")
-                .out_spec("media:sales-report;bytes")
+                .out_spec("media:sales-report")
                 .build()
                 .unwrap(),
             "Generate Large".to_string(),
@@ -186,7 +186,7 @@ fn build_manifest() -> CapManifest {
         Cap::new(
             CapUrnBuilder::new()
                 .tag("op", "process_large")
-                .in_spec("media:uploaded-document;bytes")
+                .in_spec("media:uploaded-document")
                 .out_spec("media:document-info;json;textable;form=map")
                 .build()
                 .unwrap(),
@@ -196,7 +196,7 @@ fn build_manifest() -> CapManifest {
         Cap::new(
             CapUrnBuilder::new()
                 .tag("op", "hash_incoming")
-                .in_spec("media:uploaded-document;bytes")
+                .in_spec("media:uploaded-document")
                 .out_spec("media:document-hash;textable;form=scalar")
                 .build()
                 .unwrap(),
@@ -206,7 +206,7 @@ fn build_manifest() -> CapManifest {
         Cap::new(
             CapUrnBuilder::new()
                 .tag("op", "verify_binary")
-                .in_spec("media:package-data;bytes")
+                .in_spec("media:package-data")
                 .out_spec("media:verification-status;textable;form=scalar")
                 .build()
                 .unwrap(),
@@ -229,7 +229,7 @@ fn build_manifest() -> CapManifest {
                 required: true,
                 sources: vec![
                     ArgSource::Stdin {
-                        stdin: "media:bytes".to_string(),
+                        stdin: "media:".to_string(),
                     },
                     ArgSource::Position { position: 0 },
                 ],
@@ -630,12 +630,12 @@ fn main() -> Result<(), RuntimeError> {
     eprintln!("[PLUGIN MAIN] Created runtime");
 
     // Register all handlers as Op types
-    runtime.register_op_type::<EchoOp>(r#"cap:in="media:bytes";op=echo;out="media:bytes""#);
+    runtime.register_op_type::<EchoOp>(r#"cap:in="media:";op=echo;out="media:""#);
     runtime.register_op_type::<DoubleOp>(r#"cap:in="media:order-value;json;textable;form=map";op=double;out="media:loyalty-points;integer;textable;numeric;form=scalar""#);
     runtime.register_op_type::<StreamChunksOp>(r#"cap:in="media:update-count;json;textable;form=map";op=stream_chunks;out="media:order-updates;textable""#);
-    runtime.register_op_type::<BinaryEchoOp>(r#"cap:in="media:product-image;bytes";op=binary_echo;out="media:product-image;bytes""#);
+    runtime.register_op_type::<BinaryEchoOp>(r#"cap:in="media:product-image";op=binary_echo;out="media:product-image""#);
     runtime.register_op_type::<SlowResponseOp>(r#"cap:in="media:payment-delay-ms;json;textable;form=map";op=slow_response;out="media:payment-result;textable;form=scalar""#);
-    runtime.register_op_type::<GenerateLargeOp>(r#"cap:in="media:report-size;json;textable;form=map";op=generate_large;out="media:sales-report;bytes""#);
+    runtime.register_op_type::<GenerateLargeOp>(r#"cap:in="media:report-size;json;textable;form=map";op=generate_large;out="media:sales-report""#);
     runtime.register_op_type::<WithStatusOp>(r#"cap:in="media:fulfillment-steps;json;textable;form=map";op=with_status;out="media:fulfillment-status;textable;form=scalar""#);
     runtime.register_op_type::<ThrowErrorOp>(r#"cap:in="media:payment-error;json;textable;form=map";op=throw_error;out=media:void"#);
     runtime.register_op_type::<PeerEchoOp>(r#"cap:in="media:customer-message;textable;form=scalar";op=peer_echo;out="media:customer-message;textable;form=scalar""#);
@@ -647,9 +647,9 @@ fn main() -> Result<(), RuntimeError> {
         r#"cap:in="media:order-batch-size;json;textable;form=map";op=concurrent_stress;out="media:batch-result;textable;form=scalar""#,
     );
     runtime.register_op_type::<GetManifestOp>(r#"cap:in=media:void;op=get_manifest;out="media:service-capabilities;json;textable;form=map""#);
-    runtime.register_op_type::<ProcessLargeOp>(r#"cap:in="media:uploaded-document;bytes";op=process_large;out="media:document-info;json;textable;form=map""#);
-    runtime.register_op_type::<HashIncomingOp>(r#"cap:in="media:uploaded-document;bytes";op=hash_incoming;out="media:document-hash;textable;form=scalar""#);
-    runtime.register_op_type::<VerifyBinaryOp>(r#"cap:in="media:package-data;bytes";op=verify_binary;out="media:verification-status;textable;form=scalar""#);
+    runtime.register_op_type::<ProcessLargeOp>(r#"cap:in="media:uploaded-document";op=process_large;out="media:document-info;json;textable;form=map""#);
+    runtime.register_op_type::<HashIncomingOp>(r#"cap:in="media:uploaded-document";op=hash_incoming;out="media:document-hash;textable;form=scalar""#);
+    runtime.register_op_type::<VerifyBinaryOp>(r#"cap:in="media:package-data";op=verify_binary;out="media:verification-status;textable;form=scalar""#);
     runtime.register_op_type::<ReadFileInfoOp>(r#"cap:in="media:invoice;file-path;textable;form=scalar";op=read_file_info;out="media:invoice-metadata;json;textable;form=map""#);
 
     eprintln!("[PLUGIN MAIN] Calling runtime.run()");

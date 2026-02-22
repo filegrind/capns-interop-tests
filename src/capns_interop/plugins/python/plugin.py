@@ -188,7 +188,7 @@ def build_manifest() -> CapManifest:
             media_urn="media:invoice;file-path;textable;form=scalar",
             required=True,
             sources=[
-                StdinSource("media:bytes"),
+                StdinSource("media:"),
                 PositionSource(0),
             ],
             arg_description="Path to invoice file to read",
@@ -209,8 +209,8 @@ def build_manifest() -> CapManifest:
         Cap(
             urn=CapUrnBuilder()
                 .tag("op", "echo")
-                .in_spec("media:bytes")
-                .out_spec("media:bytes")
+                .in_spec("media:")
+                .out_spec("media:")
                 .build(),
             title="Echo",
             command="echo",
@@ -236,8 +236,8 @@ def build_manifest() -> CapManifest:
         Cap(
             urn=CapUrnBuilder()
                 .tag("op", "binary_echo")
-                .in_spec("media:product-image;bytes")
-                .out_spec("media:product-image;bytes")
+                .in_spec("media:product-image")
+                .out_spec("media:product-image")
                 .build(),
             title="Binary Echo",
             command="binary_echo",
@@ -255,7 +255,7 @@ def build_manifest() -> CapManifest:
             urn=CapUrnBuilder()
                 .tag("op", "generate_large")
                 .in_spec("media:report-size;json;textable;form=map")
-                .out_spec("media:sales-report;bytes")
+                .out_spec("media:sales-report")
                 .build(),
             title="Generate Large",
             command="generate_large",
@@ -326,7 +326,7 @@ def build_manifest() -> CapManifest:
         Cap(
             urn=CapUrnBuilder()
                 .tag("op", "process_large")
-                .in_spec("media:uploaded-document;bytes")
+                .in_spec("media:uploaded-document")
                 .out_spec("media:document-info;json;textable;form=map")
                 .build(),
             title="Process Large",
@@ -335,7 +335,7 @@ def build_manifest() -> CapManifest:
         Cap(
             urn=CapUrnBuilder()
                 .tag("op", "hash_incoming")
-                .in_spec("media:uploaded-document;bytes")
+                .in_spec("media:uploaded-document")
                 .out_spec("media:document-hash;textable;form=scalar")
                 .build(),
             title="Hash Incoming",
@@ -344,7 +344,7 @@ def build_manifest() -> CapManifest:
         Cap(
             urn=CapUrnBuilder()
                 .tag("op", "verify_binary")
-                .in_spec("media:package-data;bytes")
+                .in_spec("media:package-data")
                 .out_spec("media:verification-status;textable;form=scalar")
                 .build(),
             title="Verify Binary",
@@ -639,12 +639,12 @@ def main():
     runtime = PluginRuntime.with_manifest(manifest)
 
     # Register all handlers as Op types
-    runtime.register_op_type('cap:in="media:bytes";op=echo;out="media:bytes"', EchoOp)
+    runtime.register_op_type('cap:in="media:";op=echo;out="media:"', EchoOp)
     runtime.register_op_type('cap:in="media:order-value;json;textable;form=map";op=double;out="media:loyalty-points;integer;textable;numeric;form=scalar"', DoubleOp)
     runtime.register_op_type('cap:in="media:update-count;json;textable;form=map";op=stream_chunks;out="media:order-updates;textable"', StreamChunksOp)
-    runtime.register_op_type('cap:in="media:product-image;bytes";op=binary_echo;out="media:product-image;bytes"', BinaryEchoOp)
+    runtime.register_op_type('cap:in="media:product-image";op=binary_echo;out="media:product-image"', BinaryEchoOp)
     runtime.register_op_type('cap:in="media:payment-delay-ms;json;textable;form=map";op=slow_response;out="media:payment-result;textable;form=scalar"', SlowResponseOp)
-    runtime.register_op_type('cap:in="media:report-size;json;textable;form=map";op=generate_large;out="media:sales-report;bytes"', GenerateLargeOp)
+    runtime.register_op_type('cap:in="media:report-size;json;textable;form=map";op=generate_large;out="media:sales-report"', GenerateLargeOp)
     runtime.register_op_type('cap:in="media:fulfillment-steps;json;textable;form=map";op=with_status;out="media:fulfillment-status;textable;form=scalar"', WithStatusOp)
     runtime.register_op_type('cap:in="media:payment-error;json;textable;form=map";op=throw_error;out=media:void', ThrowErrorOp)
     runtime.register_op_type('cap:in="media:customer-message;textable;form=scalar";op=peer_echo;out="media:customer-message;textable;form=scalar"', PeerEchoOp)
@@ -652,9 +652,9 @@ def main():
     runtime.register_op_type('cap:in="media:monitoring-duration-ms;json;textable;form=map";op=heartbeat_stress;out="media:health-status;textable;form=scalar"', HeartbeatStressOp)
     runtime.register_op_type('cap:in="media:order-batch-size;json;textable;form=map";op=concurrent_stress;out="media:batch-result;textable;form=scalar"', ConcurrentStressOp)
     runtime.register_op_type('cap:in=media:void;op=get_manifest;out="media:service-capabilities;json;textable;form=map"', GetManifestOp)
-    runtime.register_op_type('cap:in="media:uploaded-document;bytes";op=process_large;out="media:document-info;json;textable;form=map"', ProcessLargeOp)
-    runtime.register_op_type('cap:in="media:uploaded-document;bytes";op=hash_incoming;out="media:document-hash;textable;form=scalar"', HashIncomingOp)
-    runtime.register_op_type('cap:in="media:package-data;bytes";op=verify_binary;out="media:verification-status;textable;form=scalar"', VerifyBinaryOp)
+    runtime.register_op_type('cap:in="media:uploaded-document";op=process_large;out="media:document-info;json;textable;form=map"', ProcessLargeOp)
+    runtime.register_op_type('cap:in="media:uploaded-document";op=hash_incoming;out="media:document-hash;textable;form=scalar"', HashIncomingOp)
+    runtime.register_op_type('cap:in="media:package-data";op=verify_binary;out="media:verification-status;textable;form=scalar"', VerifyBinaryOp)
     runtime.register_op_type('cap:in="media:invoice;file-path;textable;form=scalar";op=read_file_info;out="media:invoice-metadata;json;textable;form=map"', ReadFileInfoOp)
 
     runtime.run()

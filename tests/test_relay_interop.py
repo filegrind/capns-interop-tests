@@ -23,7 +23,7 @@ from capns_interop.framework.test_topology import TestTopology
 
 # E-commerce semantic cap URNs matching test plugin
 ECHO_CAP = 'cap:in=media:;out=media:'
-BINARY_ECHO_CAP = 'cap:in="media:product-image;bytes";op=binary_echo;out="media:product-image;bytes"'
+BINARY_ECHO_CAP = 'cap:in="media:product-image";op=binary_echo;out="media:product-image"'
 
 SUPPORTED_ROUTER_LANGS = ["rust"]
 SUPPORTED_HOST_LANGS = ["rust"]
