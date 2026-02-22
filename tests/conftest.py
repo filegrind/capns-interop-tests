@@ -263,9 +263,6 @@ def plugin_binaries(project_root, request):
             print(f"[FIXTURE] Build needed for {lang} plugin", file=sys.stderr)
             sys.stderr.flush()
             _run_make(project_root, target)
-        else:
-            print(f"[FIXTURE] {lang} plugin is up-to-date, skipping build", file=sys.stderr)
-            sys.stderr.flush()
 
             # HARD CHECK: Binary must exist after build
             if not binary_path.exists():
@@ -282,6 +279,9 @@ def plugin_binaries(project_root, request):
                     f"Old mtime: {old_mtime}, New mtime: {new_mtime}\n"
                     f"This suggests the build didn't actually recompile or the copy failed"
                 )
+        else:
+            print(f"[FIXTURE] {lang} plugin is up-to-date, skipping build", file=sys.stderr)
+            sys.stderr.flush()
 
     return binaries
 
@@ -470,9 +470,6 @@ def relay_host_binaries(project_root, request):
             print(f"[FIXTURE] Build needed for {lang} relay host", file=sys.stderr)
             sys.stderr.flush()
             _run_make(project_root, target)
-        else:
-            print(f"[FIXTURE] {lang} relay host is up-to-date, skipping build", file=sys.stderr)
-            sys.stderr.flush()
 
             # HARD CHECK: Binary must exist after build
             if not binary_path.exists():
@@ -489,6 +486,9 @@ def relay_host_binaries(project_root, request):
                     f"Old mtime: {old_mtime}, New mtime: {new_mtime}\n"
                     f"This suggests the build didn't actually recompile or the copy failed"
                 )
+        else:
+            print(f"[FIXTURE] {lang} relay host is up-to-date, skipping build", file=sys.stderr)
+            sys.stderr.flush()
 
     return binaries
 
@@ -561,9 +561,6 @@ def router_binaries(project_root, request):
             print(f"[FIXTURE] Build needed for {lang} router", file=sys.stderr)
             sys.stderr.flush()
             _run_make(project_root, target)
-        else:
-            print(f"[FIXTURE] {lang} router is up-to-date, skipping build", file=sys.stderr)
-            sys.stderr.flush()
 
             # HARD CHECK: Binary must exist after build
             if not binary_path.exists():
@@ -580,6 +577,9 @@ def router_binaries(project_root, request):
                     f"Old mtime: {old_mtime}, New mtime: {new_mtime}\n"
                     f"This suggests the build didn't actually recompile or the copy failed"
                 )
+        else:
+            print(f"[FIXTURE] {lang} router is up-to-date, skipping build", file=sys.stderr)
+            sys.stderr.flush()
 
     return binaries
 

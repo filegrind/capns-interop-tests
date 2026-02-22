@@ -1,7 +1,8 @@
 use capns::{
-    ArgSource, Cap, CapArg, CapManifest, CapOutput, CapUrnBuilder,
+    ArgSource, Cap, CapArg, CapManifest, CapOutput, CapUrn, CapUrnBuilder,
     OutputStream, PluginRuntime, RuntimeError, Request, WET_KEY_REQUEST,
     Op, OpMetadata, DryContext, WetContext, OpResult, OpError, async_trait,
+    CAP_IDENTITY,
 };
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
@@ -45,10 +46,9 @@ fn emit(output: &OutputStream, value: &ciborium::Value) -> OpResult<()> {
 
 fn build_manifest() -> CapManifest {
     let caps = vec![
-        // CAP_IDENTITY (required)
+        // CAP_IDENTITY (required) - use from_string to parse the bare "cap:" constant
         Cap::new(
-            CapUrnBuilder::new()
-                .build()
+            CapUrn::from_string(CAP_IDENTITY)
                 .unwrap(),
             "Identity".to_string(),
             "identity".to_string(),

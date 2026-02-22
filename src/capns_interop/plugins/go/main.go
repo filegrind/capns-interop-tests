@@ -12,6 +12,7 @@ import (
 
 	"github.com/filegrind/capns-go/bifaci"
 	"github.com/filegrind/capns-go/cap"
+	"github.com/filegrind/capns-go/standard"
 	"github.com/filegrind/capns-go/urn"
 )
 
@@ -196,8 +197,21 @@ func buildManifest() *bifaci.CapManifest {
 		return u
 	}
 
+	mustFromString := func(s string) *urn.CapUrn {
+		u, err := urn.NewCapUrnFromString(s)
+		if err != nil {
+			panic(fmt.Sprintf("failed to parse cap URN: %v", err))
+		}
+		return u
+	}
+
 	caps := []cap.Cap{
-		// CAP_IDENTITY is auto-injected by NewPluginRuntimeWithManifest
+		// CAP_IDENTITY (required) - use from_string to parse the bare "cap:" constant
+		*cap.NewCap(
+			mustFromString(standard.CapIdentity),
+			"Identity",
+			"identity",
+		),
 		*cap.NewCap(
 			mustBuild(urn.NewCapUrnBuilder().
 				Tag("op", "echo").

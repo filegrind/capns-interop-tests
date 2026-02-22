@@ -84,6 +84,7 @@ from capns.urn.cap_urn import CapUrn, CapUrnBuilder
 from capns.cap.caller import CapArgumentValue
 from capns.cap.definition import CapArg, CapOutput, StdinSource, PositionSource
 from capns.bifaci.frame import Frame, FrameType
+from capns.standard.caps import CAP_IDENTITY
 from ops import Op, OpMetadata, DryContext, WetContext
 import queue
 
@@ -199,10 +200,9 @@ def build_manifest() -> CapManifest:
     )
 
     caps = [
-        # CAP_IDENTITY (required)
+        # CAP_IDENTITY (required) - use from_string to parse the bare "cap:" constant
         Cap(
-            urn=CapUrnBuilder()
-                .build(),
+            urn=CapUrn.from_string(CAP_IDENTITY),
             title="Identity",
             command="identity",
         ),
