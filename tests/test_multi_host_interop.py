@@ -6,6 +6,8 @@ Each relay host binary manages multiple plugin binaries and routes requests by c
 Architecture:
     Test (Engine) → Router (RelaySwitch) → Host (PluginHost) → plugin1
                                                                → plugin2
+
+Updated to use TestTopology declarative API (no backward compatibility).
 """
 
 import json
@@ -20,7 +22,7 @@ from capns_interop.framework.frame_test_helper import (
     read_response,
     decode_cbor_response,
 )
-from capns_interop.framework.router_process import RouterProcess
+from capns_interop.framework.test_topology import TestTopology
 
 # E-commerce semantic cap URNs matching the test plugin's registered capabilities
 ECHO_CAP = 'cap:in=media:;out=media:'
@@ -42,14 +44,14 @@ SUPPORTED_PLUGIN_LANGS = ["rust", "go", "python", "swift"]
 @pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
 def test_two_plugin_routing(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang, plugin_lang):
     """Route requests to two instances of the same plugin, verify both respond."""
-    router = RouterProcess(
-        str(router_binaries[router_lang]),
-        str(relay_host_binaries[host_lang]),
-        [str(plugin_binaries[plugin_lang]), str(plugin_binaries[plugin_lang])],
-    )
-    reader, writer = router.start()
+    topology = (TestTopology()
+        .router(router_binaries[router_lang])
+        .host("default", relay_host_binaries[host_lang], [plugin_binaries[plugin_lang], plugin_binaries[plugin_lang]])
+        .build())
 
-    try:
+    with topology:
+        reader, writer = topology.start()
+
         # Send echo request
         req_id = make_req_id()
         send_request(writer, req_id, ECHO_CAP, b"hello-routing")
@@ -67,8 +69,6 @@ def test_two_plugin_routing(router_binaries, relay_host_binaries, plugin_binarie
         assert output2 == bytes(range(256)), (
             f"[{router_lang}/{host_lang}/{plugin_lang}] binary_echo data mismatch"
         )
-    finally:
-        router.stop()
 
 
 # ============================================================
@@ -80,14 +80,14 @@ def test_two_plugin_routing(router_binaries, relay_host_binaries, plugin_binarie
 @pytest.mark.parametrize("host_lang", SUPPORTED_HOST_LANGS)
 def test_unknown_cap_returns_err(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang):
     """Request for unknown cap must return ERR frame."""
-    router = RouterProcess(
-        str(router_binaries[router_lang]),
-        str(relay_host_binaries[host_lang]),
-        [str(plugin_binaries["rust"])],
-    )
-    reader, writer = router.start()
+    topology = (TestTopology()
+        .router(router_binaries[router_lang])
+        .host("default", relay_host_binaries[host_lang], [plugin_binaries["rust"]])
+        .build())
 
-    try:
+    with topology:
+        reader, writer = topology.start()
+
         req_id = make_req_id()
         send_request(writer, req_id, "cap:op=nonexistent-cap-xyz", b"", media_urn="media:void")
         _, frames = read_response(reader)
@@ -97,8 +97,6 @@ def test_unknown_cap_returns_err(router_binaries, relay_host_binaries, plugin_bi
             f"[{router_lang}/{host_lang}] must receive ERR for unknown cap, got: "
             f"{[f.frame_type for f in frames]}"
         )
-    finally:
-        router.stop()
 
 
 # ============================================================
@@ -111,14 +109,14 @@ def test_unknown_cap_returns_err(router_binaries, relay_host_binaries, plugin_bi
 @pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
 def test_concurrent_requests(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang, plugin_lang):
     """Two requests sent before reading any response both complete correctly."""
-    router = RouterProcess(
-        str(router_binaries[router_lang]),
-        str(relay_host_binaries[host_lang]),
-        [str(plugin_binaries[plugin_lang])],
-    )
-    reader, writer = router.start()
+    topology = (TestTopology()
+        .router(router_binaries[router_lang])
+        .host("default", relay_host_binaries[host_lang], [plugin_binaries[plugin_lang]])
+        .build())
 
-    try:
+    with topology:
+        reader, writer = topology.start()
+
         payload1 = b"first-request"
         payload2 = b"second-request"
 
@@ -159,5 +157,3 @@ def test_concurrent_requests(router_binaries, relay_host_binaries, plugin_binari
         assert decoded2 == payload2, (
             f"[{router_lang}/{host_lang}/{plugin_lang}] second request mismatch: {decoded2!r}"
         )
-    finally:
-        router.stop()

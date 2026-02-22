@@ -21,7 +21,7 @@ from capns_interop.framework.frame_test_helper import (
     read_response,
     decode_cbor_response,
 )
-from capns_interop.framework.router_process import RouterProcess
+from capns_interop.framework.test_topology import TestTopology
 
 SUPPORTED_ROUTER_LANGS = ["rust", "swift"]
 SUPPORTED_HOST_LANGS = ["rust", "swift"]
@@ -41,14 +41,14 @@ def test_peer_echo(router_binaries, relay_host_binaries, plugin_binaries, router
 
     Uses 3-tier architecture: Router (RelaySwitch) → Host (PluginHost) → Plugin.
     """
-    router = RouterProcess(
-        str(router_binaries[router_lang]),
-        str(relay_host_binaries[host_lang]),
-        [str(plugin_binaries[plugin_lang])],
-    )
-    reader, writer = router.start()
+    topology = (TestTopology()
+        .router(router_binaries[router_lang])
+        .host("default", relay_host_binaries[host_lang], [plugin_binaries[plugin_lang]])
+        .build())
 
-    try:
+    with topology:
+        reader, writer = topology.start()
+
         test_input = b"Hello from peer!"
         req_id = make_req_id()
         send_request(writer, req_id, TEST_CAPS["peer_echo"], test_input)
@@ -57,8 +57,6 @@ def test_peer_echo(router_binaries, relay_host_binaries, plugin_binaries, router
         assert output == test_input, (
             f"[{router_lang}/{host_lang}/{plugin_lang}] peer echo mismatch: expected {test_input!r}, got {output!r}"
         )
-    finally:
-        router.stop()
 
 
 @pytest.mark.timeout(30)
@@ -74,14 +72,14 @@ def test_nested_call(router_binaries, relay_host_binaries, plugin_binaries, rout
 
     Uses 3-tier architecture: Router (RelaySwitch) → Host (PluginHost) → Plugin.
     """
-    router = RouterProcess(
-        str(router_binaries[router_lang]),
-        str(relay_host_binaries[host_lang]),
-        [str(plugin_binaries[plugin_lang])],
-    )
-    reader, writer = router.start()
+    topology = (TestTopology()
+        .router(router_binaries[router_lang])
+        .host("default", relay_host_binaries[host_lang], [plugin_binaries[plugin_lang]])
+        .build())
 
-    try:
+    with topology:
+        reader, writer = topology.start()
+
         value = 21
         input_json = json.dumps({"value": value}).encode()
         req_id = make_req_id()
@@ -97,8 +95,6 @@ def test_nested_call(router_binaries, relay_host_binaries, plugin_binaries, rout
         assert result == expected, (
             f"[{router_lang}/{host_lang}/{plugin_lang}] nested call mismatch: expected {expected}, got {result}"
         )
-    finally:
-        router.stop()
 
 
 @pytest.mark.timeout(30)
@@ -110,14 +106,14 @@ def test_bidirectional_echo_multi(router_binaries, relay_host_binaries, plugin_b
 
     Uses 3-tier architecture: Router (RelaySwitch) → Host (PluginHost) → Plugin.
     """
-    router = RouterProcess(
-        str(router_binaries[router_lang]),
-        str(relay_host_binaries[host_lang]),
-        [str(plugin_binaries[plugin_lang])],
-    )
-    reader, writer = router.start()
+    topology = (TestTopology()
+        .router(router_binaries[router_lang])
+        .host("default", relay_host_binaries[host_lang], [plugin_binaries[plugin_lang]])
+        .build())
 
-    try:
+    with topology:
+        reader, writer = topology.start()
+
         test_values = [b"Test1", b"Test2", b"Test3"]
         for test_val in test_values:
             req_id = make_req_id()
@@ -128,5 +124,3 @@ def test_bidirectional_echo_multi(router_binaries, relay_host_binaries, plugin_b
                 f"[{router_lang}/{host_lang}/{plugin_lang}] peer echo mismatch: "
                 f"expected {test_val!r}, got {output!r}"
             )
-    finally:
-        router.stop()

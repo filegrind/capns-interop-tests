@@ -19,7 +19,7 @@ from capns_interop.framework.frame_test_helper import (
     read_response,
     decode_cbor_response,
 )
-from capns_interop.framework.router_process import RouterProcess
+from capns_interop.framework.test_topology import TestTopology
 
 SUPPORTED_ROUTER_LANGS = ["rust"]
 SUPPORTED_HOST_LANGS = ["rust"]
@@ -32,14 +32,13 @@ SUPPORTED_PLUGIN_LANGS = ["rust", "go", "python", "swift"]
 @pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
 def test_throw_error(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang, plugin_lang):
     """Test error propagation from plugin: plugin throws, host receives ERR frame."""
-    router = RouterProcess(
-        str(router_binaries[router_lang]),
-        str(relay_host_binaries[host_lang]),
-        [str(plugin_binaries[plugin_lang])],
-    )
-    reader, writer = router.start()
+    topology = (TestTopology()
+        .router(router_binaries[router_lang])
+        .host("default", relay_host_binaries[host_lang], [plugin_binaries[plugin_lang]])
+        .build())
 
-    try:
+    with topology:
+        reader, writer = topology.start()
         error_msg = "Test error message"
         input_json = json.dumps({"value": error_msg}).encode()
         req_id = make_req_id()
@@ -57,8 +56,7 @@ def test_throw_error(router_binaries, relay_host_binaries, plugin_binaries, rout
             f"[{router_lang}/{host_lang}/{plugin_lang}] ERR frame missing routing_id (XID): "
             f"expected {req_id}, got {err_frame.routing_id}"
         )
-    finally:
-        router.stop()
+
 
 
 @pytest.mark.timeout(30)
@@ -67,14 +65,13 @@ def test_throw_error(router_binaries, relay_host_binaries, plugin_binaries, rout
 @pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
 def test_invalid_cap(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang, plugin_lang):
     """Test calling non-existent capability returns ERR from PluginHost."""
-    router = RouterProcess(
-        str(router_binaries[router_lang]),
-        str(relay_host_binaries[host_lang]),
-        [str(plugin_binaries[plugin_lang])],
-    )
-    reader, writer = router.start()
+    topology = (TestTopology()
+        .router(router_binaries[router_lang])
+        .host("default", relay_host_binaries[host_lang], [plugin_binaries[plugin_lang]])
+        .build())
 
-    try:
+    with topology:
+        reader, writer = topology.start()
         fake_cap = 'cap:in="media:void";op=nonexistent;out="media:void"'
         req_id = make_req_id()
         send_request(writer, req_id, fake_cap, b"", media_urn="media:void")
@@ -91,8 +88,7 @@ def test_invalid_cap(router_binaries, relay_host_binaries, plugin_binaries, rout
             f"[{router_lang}/{host_lang}/{plugin_lang}] ERR frame missing routing_id (XID): "
             f"expected {req_id}, got {err_frame.routing_id}"
         )
-    finally:
-        router.stop()
+
 
 
 @pytest.mark.timeout(30)
@@ -101,14 +97,13 @@ def test_invalid_cap(router_binaries, relay_host_binaries, plugin_binaries, rout
 @pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
 def test_malformed_payload(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang, plugin_lang):
     """Test sending malformed JSON: plugin should return ERR."""
-    router = RouterProcess(
-        str(router_binaries[router_lang]),
-        str(relay_host_binaries[host_lang]),
-        [str(plugin_binaries[plugin_lang])],
-    )
-    reader, writer = router.start()
+    topology = (TestTopology()
+        .router(router_binaries[router_lang])
+        .host("default", relay_host_binaries[host_lang], [plugin_binaries[plugin_lang]])
+        .build())
 
-    try:
+    with topology:
+        reader, writer = topology.start()
         malformed_json = b"{invalid json"
         req_id = make_req_id()
         send_request(writer, req_id, TEST_CAPS["double"], malformed_json, media_urn="media:order-value;json;textable;form=map")
@@ -125,8 +120,7 @@ def test_malformed_payload(router_binaries, relay_host_binaries, plugin_binaries
             f"[{router_lang}/{host_lang}/{plugin_lang}] ERR frame missing routing_id (XID): "
             f"expected {req_id}, got {err_frame.routing_id}"
         )
-    finally:
-        router.stop()
+
 
 
 @pytest.mark.timeout(30)
@@ -135,14 +129,13 @@ def test_malformed_payload(router_binaries, relay_host_binaries, plugin_binaries
 @pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
 def test_graceful_shutdown(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang, plugin_lang):
     """Test graceful shutdown: complete several requests then close cleanly."""
-    router = RouterProcess(
-        str(router_binaries[router_lang]),
-        str(relay_host_binaries[host_lang]),
-        [str(plugin_binaries[plugin_lang])],
-    )
-    reader, writer = router.start()
+    topology = (TestTopology()
+        .router(router_binaries[router_lang])
+        .host("default", relay_host_binaries[host_lang], [plugin_binaries[plugin_lang]])
+        .build())
 
-    try:
+    with topology:
+        reader, writer = topology.start()
         for i in range(3):
             test_input = f"test-{i}".encode()
             req_id = make_req_id()
@@ -151,5 +144,4 @@ def test_graceful_shutdown(router_binaries, relay_host_binaries, plugin_binaries
             assert output == test_input, (
                 f"[{router_lang}/{host_lang}/{plugin_lang}] iteration {i}: {output!r} != {test_input!r}"
             )
-    finally:
-        router.stop()
+

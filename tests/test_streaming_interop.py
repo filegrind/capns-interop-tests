@@ -18,7 +18,7 @@ from capns_interop.framework.frame_test_helper import (
     read_response,
     decode_cbor_response,
 )
-from capns_interop.framework.router_process import RouterProcess
+from capns_interop.framework.test_topology import TestTopology
 
 SUPPORTED_ROUTER_LANGS = ["rust"]
 SUPPORTED_HOST_LANGS = ["rust"]
@@ -31,14 +31,13 @@ SUPPORTED_PLUGIN_LANGS = ["rust", "go", "python", "swift"]
 @pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
 def test_stream_chunks(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang, plugin_lang):
     """Test streaming multiple chunks: request N chunks, verify all received in order."""
-    router = RouterProcess(
-        str(router_binaries[router_lang]),
-        str(relay_host_binaries[host_lang]),
-        [str(plugin_binaries[plugin_lang])],
-    )
-    reader, writer = router.start()
+    topology = (TestTopology()
+        .router(router_binaries[router_lang])
+        .host("default", relay_host_binaries[host_lang], [plugin_binaries[plugin_lang]])
+        .build())
 
-    try:
+    with topology:
+        reader, writer = topology.start()
         chunk_count = 5
         input_json = json.dumps({"value": chunk_count}).encode()
         req_id = make_req_id()
@@ -59,8 +58,7 @@ def test_stream_chunks(router_binaries, relay_host_binaries, plugin_binaries, ro
         assert len(chunks_data) >= chunk_count, (
             f"[{router_lang}/{host_lang}/{plugin_lang}] expected >= {chunk_count} chunks, got {len(chunks_data)}"
         )
-    finally:
-        router.stop()
+
 
 
 @pytest.mark.timeout(60)
@@ -69,14 +67,13 @@ def test_stream_chunks(router_binaries, relay_host_binaries, plugin_binaries, ro
 @pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
 def test_large_payload(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang, plugin_lang):
     """Test large payload transfer (10MB): request generated data, verify size + pattern."""
-    router = RouterProcess(
-        str(router_binaries[router_lang]),
-        str(relay_host_binaries[host_lang]),
-        [str(plugin_binaries[plugin_lang])],
-    )
-    reader, writer = router.start()
+    topology = (TestTopology()
+        .router(router_binaries[router_lang])
+        .host("default", relay_host_binaries[host_lang], [plugin_binaries[plugin_lang]])
+        .build())
 
-    try:
+    with topology:
+        reader, writer = topology.start()
         size = 10 * 1024 * 1024  # 10 MB
         input_json = json.dumps({"value": size}).encode()
         req_id = make_req_id()
@@ -112,8 +109,7 @@ def test_large_payload(router_binaries, relay_host_binaries, plugin_binaries, ro
             assert all_data[i] == pattern[i % len(pattern)], (
                 f"[{router_lang}/{host_lang}/{plugin_lang}] pattern mismatch at byte {i}"
             )
-    finally:
-        router.stop()
+
 
 
 @pytest.mark.timeout(30)
@@ -122,14 +118,13 @@ def test_large_payload(router_binaries, relay_host_binaries, plugin_binaries, ro
 @pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
 def test_binary_data(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang, plugin_lang):
     """Test binary data integrity: send all 256 byte values repeated, verify roundtrip."""
-    router = RouterProcess(
-        str(router_binaries[router_lang]),
-        str(relay_host_binaries[host_lang]),
-        [str(plugin_binaries[plugin_lang])],
-    )
-    reader, writer = router.start()
+    topology = (TestTopology()
+        .router(router_binaries[router_lang])
+        .host("default", relay_host_binaries[host_lang], [plugin_binaries[plugin_lang]])
+        .build())
 
-    try:
+    with topology:
+        reader, writer = topology.start()
         test_data = bytes(range(256)) * 100  # 25.6 KB
         req_id = make_req_id()
         send_request(writer, req_id, TEST_CAPS["binary_echo"], test_data)
@@ -139,8 +134,7 @@ def test_binary_data(router_binaries, relay_host_binaries, plugin_binaries, rout
             f"[{router_lang}/{host_lang}/{plugin_lang}] binary data mismatch "
             f"(len: {len(output)} vs {len(test_data)})"
         )
-    finally:
-        router.stop()
+
 
 
 @pytest.mark.timeout(30)
@@ -149,14 +143,13 @@ def test_binary_data(router_binaries, relay_host_binaries, plugin_binaries, rout
 @pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
 def test_stream_ordering(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang, plugin_lang):
     """Test streaming chunk ordering: request 20 chunks, verify sequential order."""
-    router = RouterProcess(
-        str(router_binaries[router_lang]),
-        str(relay_host_binaries[host_lang]),
-        [str(plugin_binaries[plugin_lang])],
-    )
-    reader, writer = router.start()
+    topology = (TestTopology()
+        .router(router_binaries[router_lang])
+        .host("default", relay_host_binaries[host_lang], [plugin_binaries[plugin_lang]])
+        .build())
 
-    try:
+    with topology:
+        reader, writer = topology.start()
         chunk_count = 20
         input_json = json.dumps({"value": chunk_count}).encode()
         req_id = make_req_id()
@@ -196,5 +189,4 @@ def test_stream_ordering(router_binaries, relay_host_binaries, plugin_binaries, 
                 assert indices[i] > indices[i - 1], (
                     f"[{router_lang}/{host_lang}/{plugin_lang}] chunk-{i} arrived before chunk-{i-1}"
                 )
-    finally:
-        router.stop()
+

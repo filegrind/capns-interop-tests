@@ -20,7 +20,7 @@ from capns_interop.framework.frame_test_helper import (
     read_response,
     decode_cbor_response,
 )
-from capns_interop.framework.router_process import RouterProcess
+from capns_interop.framework.test_topology import TestTopology
 
 SUPPORTED_ROUTER_LANGS = ["rust"]
 SUPPORTED_HOST_LANGS = ["rust"]
@@ -33,14 +33,13 @@ SUPPORTED_PLUGIN_LANGS = ["rust", "go", "python", "swift"]
 @pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
 def test_single_stream(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang, plugin_lang):
     """Test single stream: STREAM_START + CHUNK + STREAM_END + END roundtrip."""
-    router = RouterProcess(
-        str(router_binaries[router_lang]),
-        str(relay_host_binaries[host_lang]),
-        [str(plugin_binaries[plugin_lang])],
-    )
-    reader, writer = router.start()
+    topology = (TestTopology()
+        .router(router_binaries[router_lang])
+        .host("default", relay_host_binaries[host_lang], [plugin_binaries[plugin_lang]])
+        .build())
 
-    try:
+    with topology:
+        reader, writer = topology.start()
         test_data = b"Hello stream multiplexing!"
         req_id = make_req_id()
         send_request(writer, req_id, TEST_CAPS["echo"], test_data)
@@ -49,8 +48,7 @@ def test_single_stream(router_binaries, relay_host_binaries, plugin_binaries, ro
         assert output == test_data, (
             f"[{router_lang}/{host_lang}/{plugin_lang}] single stream mismatch: {output!r}"
         )
-    finally:
-        router.stop()
+
 
 
 @pytest.mark.timeout(30)
@@ -59,14 +57,13 @@ def test_single_stream(router_binaries, relay_host_binaries, plugin_binaries, ro
 @pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
 def test_multiple_streams(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang, plugin_lang):
     """Test protocol correctly tracks stream state across multiple sequential requests."""
-    router = RouterProcess(
-        str(router_binaries[router_lang]),
-        str(relay_host_binaries[host_lang]),
-        [str(plugin_binaries[plugin_lang])],
-    )
-    reader, writer = router.start()
+    topology = (TestTopology()
+        .router(router_binaries[router_lang])
+        .host("default", relay_host_binaries[host_lang], [plugin_binaries[plugin_lang]])
+        .build())
 
-    try:
+    with topology:
+        reader, writer = topology.start()
         for i in range(3):
             test_data = f"stream-test-{i}".encode()
             req_id = make_req_id()
@@ -76,8 +73,7 @@ def test_multiple_streams(router_binaries, relay_host_binaries, plugin_binaries,
             assert output == test_data, (
                 f"[{router_lang}/{host_lang}/{plugin_lang}] request {i} mismatch: {output!r}"
             )
-    finally:
-        router.stop()
+
 
 
 @pytest.mark.timeout(30)
@@ -86,14 +82,13 @@ def test_multiple_streams(router_binaries, relay_host_binaries, plugin_binaries,
 @pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
 def test_empty_stream(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang, plugin_lang):
     """Test empty payload through stream multiplexing."""
-    router = RouterProcess(
-        str(router_binaries[router_lang]),
-        str(relay_host_binaries[host_lang]),
-        [str(plugin_binaries[plugin_lang])],
-    )
-    reader, writer = router.start()
+    topology = (TestTopology()
+        .router(router_binaries[router_lang])
+        .host("default", relay_host_binaries[host_lang], [plugin_binaries[plugin_lang]])
+        .build())
 
-    try:
+    with topology:
+        reader, writer = topology.start()
         test_data = b""
         req_id = make_req_id()
         send_request(writer, req_id, TEST_CAPS["echo"], test_data)
@@ -102,8 +97,7 @@ def test_empty_stream(router_binaries, relay_host_binaries, plugin_binaries, rou
         assert output == test_data, (
             f"[{router_lang}/{host_lang}/{plugin_lang}] empty stream mismatch: {output!r}"
         )
-    finally:
-        router.stop()
+
 
 
 @pytest.mark.timeout(30)
@@ -112,14 +106,13 @@ def test_empty_stream(router_binaries, relay_host_binaries, plugin_binaries, rou
 @pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
 def test_interleaved_streams(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang, plugin_lang):
     """Test binary data integrity through stream multiplexing."""
-    router = RouterProcess(
-        str(router_binaries[router_lang]),
-        str(relay_host_binaries[host_lang]),
-        [str(plugin_binaries[plugin_lang])],
-    )
-    reader, writer = router.start()
+    topology = (TestTopology()
+        .router(router_binaries[router_lang])
+        .host("default", relay_host_binaries[host_lang], [plugin_binaries[plugin_lang]])
+        .build())
 
-    try:
+    with topology:
+        reader, writer = topology.start()
         test_data = bytes(range(256))
         req_id = make_req_id()
         send_request(writer, req_id, TEST_CAPS["binary_echo"], test_data)
@@ -128,8 +121,7 @@ def test_interleaved_streams(router_binaries, relay_host_binaries, plugin_binari
         assert output == test_data, (
             f"[{router_lang}/{host_lang}/{plugin_lang}] binary data corrupted through stream multiplexing"
         )
-    finally:
-        router.stop()
+
 
 
 @pytest.mark.timeout(30)
@@ -138,14 +130,13 @@ def test_interleaved_streams(router_binaries, relay_host_binaries, plugin_binari
 @pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
 def test_stream_error_handling(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang, plugin_lang):
     """Test that stream protocol completes cleanly without errors."""
-    router = RouterProcess(
-        str(router_binaries[router_lang]),
-        str(relay_host_binaries[host_lang]),
-        [str(plugin_binaries[plugin_lang])],
-    )
-    reader, writer = router.start()
+    topology = (TestTopology()
+        .router(router_binaries[router_lang])
+        .host("default", relay_host_binaries[host_lang], [plugin_binaries[plugin_lang]])
+        .build())
 
-    try:
+    with topology:
+        reader, writer = topology.start()
         test_data = b"Error handling test"
         req_id = make_req_id()
         send_request(writer, req_id, TEST_CAPS["echo"], test_data)
@@ -160,5 +151,4 @@ def test_stream_error_handling(router_binaries, relay_host_binaries, plugin_bina
         assert len(err_frames) == 0, (
             f"[{router_lang}/{host_lang}/{plugin_lang}] unexpected ERR frames in response"
         )
-    finally:
-        router.stop()
+

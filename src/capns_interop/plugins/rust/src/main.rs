@@ -45,6 +45,14 @@ fn emit(output: &OutputStream, value: &ciborium::Value) -> OpResult<()> {
 
 fn build_manifest() -> CapManifest {
     let caps = vec![
+        // CAP_IDENTITY (required)
+        Cap::new(
+            CapUrnBuilder::new()
+                .build()
+                .unwrap(),
+            "Identity".to_string(),
+            "identity".to_string(),
+        ),
         Cap::new(
             CapUrnBuilder::new()
                 .tag("op", "echo")

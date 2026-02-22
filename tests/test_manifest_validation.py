@@ -19,7 +19,7 @@ from capns_interop.framework.frame_test_helper import (
     send_request,
     read_response,
 )
-from capns_interop.framework.router_process import RouterProcess
+from capns_interop.framework.test_topology import TestTopology
 
 SUPPORTED_ROUTER_LANGS = ["rust"]
 SUPPORTED_HOST_LANGS = ["rust"]
@@ -42,14 +42,13 @@ def test_plugin_declares_cap_identity(router_binaries, relay_host_binaries, plug
 
     This test verifies the plugin starts and can handle the identity capability.
     """
-    router = RouterProcess(
-        str(router_binaries[router_lang]),
-        str(relay_host_binaries[host_lang]),
-        [str(plugin_binaries[plugin_lang])],
-    )
-    reader, writer = router.start()
+    topology = (TestTopology()
+        .router(router_binaries[router_lang])
+        .host("default", relay_host_binaries[host_lang], [plugin_binaries[plugin_lang]])
+        .build())
 
-    try:
+    with topology:
+        reader, writer = topology.start()
         # Test identity capability - all plugins must support this
         test_input = b"cap_identity_test"
         req_id = make_req_id()
@@ -63,8 +62,7 @@ def test_plugin_declares_cap_identity(router_binaries, relay_host_binaries, plug
             f"[{router_lang}/{host_lang}/{plugin_lang}] "
             f"Plugin started but echo failed: {output!r} != {test_input!r}"
         )
-    finally:
-        router.stop()
+
 
 
 # NOTE: Testing a plugin WITHOUT CAP_IDENTITY would require building a

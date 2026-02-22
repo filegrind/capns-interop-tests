@@ -199,6 +199,13 @@ def build_manifest() -> CapManifest:
     )
 
     caps = [
+        # CAP_IDENTITY (required)
+        Cap(
+            urn=CapUrnBuilder()
+                .build(),
+            title="Identity",
+            command="identity",
+        ),
         Cap(
             urn=CapUrnBuilder()
                 .tag("op", "echo")

@@ -19,7 +19,7 @@ from capns_interop.framework.frame_test_helper import (
     read_response,
     decode_cbor_response,
 )
-from capns_interop.framework.router_process import RouterProcess
+from capns_interop.framework.test_topology import TestTopology
 
 # E-commerce semantic cap URNs matching test plugin
 ECHO_CAP = 'cap:in=media:;out=media:'
@@ -45,14 +45,13 @@ def test_relay_initial_notify(router_binaries, relay_host_binaries, plugin_binar
     capability list before returning. If we reach here, the relay handshake worked.
     Verify by sending a request that exercises the advertised capabilities.
     """
-    router = RouterProcess(
-        str(router_binaries[router_lang]),
-        str(relay_host_binaries[host_lang]),
-        [str(plugin_binaries[plugin_lang])],
-    )
-    reader, writer = router.start()
+    topology = (TestTopology()
+        .router(router_binaries[router_lang])
+        .host("default", relay_host_binaries[host_lang], [plugin_binaries[plugin_lang]])
+        .build())
 
-    try:
+    with topology:
+        reader, writer = topology.start()
         # If start() returned, capabilities were received. Verify they work.
         req_id = make_req_id()
         send_request(writer, req_id, ECHO_CAP, b"relay-notify-test")
@@ -61,8 +60,7 @@ def test_relay_initial_notify(router_binaries, relay_host_binaries, plugin_binar
         assert output == b"relay-notify-test", (
             f"[{router_lang}/{host_lang}/{plugin_lang}] echo after relay notify failed: {output!r}"
         )
-    finally:
-        router.stop()
+
 
 
 # ============================================================
@@ -75,14 +73,13 @@ def test_relay_initial_notify(router_binaries, relay_host_binaries, plugin_binar
 @pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
 def test_relay_request_passthrough(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang, plugin_lang):
     """REQ through relay reaches plugin, response comes back through relay."""
-    router = RouterProcess(
-        str(router_binaries[router_lang]),
-        str(relay_host_binaries[host_lang]),
-        [str(plugin_binaries[plugin_lang])],
-    )
-    reader, writer = router.start()
+    topology = (TestTopology()
+        .router(router_binaries[router_lang])
+        .host("default", relay_host_binaries[host_lang], [plugin_binaries[plugin_lang]])
+        .build())
 
-    try:
+    with topology:
+        reader, writer = topology.start()
         req_id = make_req_id()
         send_request(writer, req_id, ECHO_CAP, b"relay-echo-test")
         output, frames = read_response(reader)
@@ -90,8 +87,7 @@ def test_relay_request_passthrough(router_binaries, relay_host_binaries, plugin_
         assert output == b"relay-echo-test", (
             f"[{router_lang}/{host_lang}/{plugin_lang}] echo mismatch through relay: {output!r}"
         )
-    finally:
-        router.stop()
+
 
 
 # ============================================================
@@ -109,14 +105,13 @@ def test_relay_state_delivery(router_binaries, relay_host_binaries, plugin_binar
     frame, the plugin runtime would send an ERR. Since the echo still works,
     the relay correctly intercepted the RelayState.
     """
-    router = RouterProcess(
-        str(router_binaries[router_lang]),
-        str(relay_host_binaries[host_lang]),
-        [str(plugin_binaries[plugin_lang])],
-    )
-    reader, writer = router.start()
+    topology = (TestTopology()
+        .router(router_binaries[router_lang])
+        .host("default", relay_host_binaries[host_lang], [plugin_binaries[plugin_lang]])
+        .build())
 
-    try:
+    with topology:
+        reader, writer = topology.start()
         # Send RelayState through router to slave
         from capns.bifaci.io import FrameWriter
         state_frame = Frame.relay_state(b'{"memory_mb": 1024}')
@@ -131,8 +126,7 @@ def test_relay_state_delivery(router_binaries, relay_host_binaries, plugin_binar
         assert output == b"after-relay-state", (
             f"[{router_lang}/{host_lang}/{plugin_lang}] echo after RelayState failed: {output!r}"
         )
-    finally:
-        router.stop()
+
 
 
 # ============================================================
@@ -144,14 +138,14 @@ def test_relay_state_delivery(router_binaries, relay_host_binaries, plugin_binar
 @pytest.mark.parametrize("host_lang", SUPPORTED_HOST_LANGS)
 def test_relay_unknown_cap_returns_err(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang):
     """Request for unknown cap through relay returns ERR frame."""
-    router = RouterProcess(
-        str(router_binaries[router_lang]),
-        str(relay_host_binaries[host_lang]),
-        [str(plugin_binaries["rust"])],
-    )
-    reader, writer = router.start()
+    topology = (TestTopology()
+        .router(router_binaries[router_lang])
+        .host("default", relay_host_binaries[host_lang], [plugin_binaries["rust"]])
+        .build())
 
-    try:
+    with topology:
+        reader, writer = topology.start()
+
         req_id = make_req_id()
         send_request(writer, req_id, "cap:op=nonexistent-relay-xyz", b"", media_urn="media:void")
         _, frames = read_response(reader)
@@ -161,8 +155,7 @@ def test_relay_unknown_cap_returns_err(router_binaries, relay_host_binaries, plu
             f"[{router_lang}/{host_lang}] must receive ERR for unknown cap through relay, got: "
             f"{[f.frame_type for f in frames]}"
         )
-    finally:
-        router.stop()
+
 
 
 # ============================================================
@@ -175,14 +168,13 @@ def test_relay_unknown_cap_returns_err(router_binaries, relay_host_binaries, plu
 @pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
 def test_relay_mixed_traffic(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang, plugin_lang):
     """RelayState frames interleaved with requests work correctly."""
-    router = RouterProcess(
-        str(router_binaries[router_lang]),
-        str(relay_host_binaries[host_lang]),
-        [str(plugin_binaries[plugin_lang])],
-    )
-    reader, writer = router.start()
+    topology = (TestTopology()
+        .router(router_binaries[router_lang])
+        .host("default", relay_host_binaries[host_lang], [plugin_binaries[plugin_lang]])
+        .build())
 
-    try:
+    with topology:
+        reader, writer = topology.start()
         # Interleave: RelayState, request, RelayState, request
         state_frame1 = Frame.relay_state(b'{"step": 1}')
         writer.write(state_frame1)
@@ -204,5 +196,4 @@ def test_relay_mixed_traffic(router_binaries, relay_host_binaries, plugin_binari
         assert output2 == bytes(range(64)), (
             f"[{router_lang}/{host_lang}/{plugin_lang}] second request after state: {output2!r}"
         )
-    finally:
-        router.stop()
+

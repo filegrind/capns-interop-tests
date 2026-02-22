@@ -5,6 +5,8 @@ router x host x plugin language combinations using raw CBOR frames.
 
 Architecture:
     Test (Engine) → Router (RelaySwitch) → Host (PluginHost) → Plugin
+
+Updated to use TestTopology declarative API (no backward compatibility).
 """
 
 import json
@@ -18,7 +20,7 @@ from capns_interop.framework.frame_test_helper import (
     decode_cbor_response,
     FrameType,
 )
-from capns_interop.framework.router_process import RouterProcess
+from capns_interop.framework.test_topology import TestTopology
 
 SUPPORTED_ROUTER_LANGS = ["rust", "swift"]
 SUPPORTED_HOST_LANGS = ["rust", "swift"]
@@ -31,14 +33,14 @@ SUPPORTED_PLUGIN_LANGS = ["rust", "go", "python", "swift"]
 @pytest.mark.parametrize("router_lang", SUPPORTED_ROUTER_LANGS)
 def test_echo(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang, plugin_lang):
     """Test echo capability: send bytes, receive identical bytes back."""
-    router = RouterProcess(
-        str(router_binaries[router_lang]),
-        str(relay_host_binaries[host_lang]),
-        [str(plugin_binaries[plugin_lang])],
-    )
-    reader, writer = router.start()
+    topology = (TestTopology()
+        .router(router_binaries[router_lang])
+        .host("default", relay_host_binaries[host_lang], [plugin_binaries[plugin_lang]])
+        .build())
 
-    try:
+    with topology:
+        reader, writer = topology.start()
+
         test_input = b"Hello, World!"
         req_id = make_req_id()
         send_request(writer, req_id, TEST_CAPS["echo"], test_input)
@@ -47,8 +49,6 @@ def test_echo(router_binaries, relay_host_binaries, plugin_binaries, router_lang
         assert output == test_input, (
             f"[{router_lang}/{host_lang}/{plugin_lang}] echo mismatch: expected {test_input!r}, got {output!r}"
         )
-    finally:
-        router.stop()
 
 
 @pytest.mark.timeout(30)
@@ -57,14 +57,14 @@ def test_echo(router_binaries, relay_host_binaries, plugin_binaries, router_lang
 @pytest.mark.parametrize("router_lang", SUPPORTED_ROUTER_LANGS)
 def test_double(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang, plugin_lang):
     """Test double capability: send number, receive doubled result."""
-    router = RouterProcess(
-        str(router_binaries[router_lang]),
-        str(relay_host_binaries[host_lang]),
-        [str(plugin_binaries[plugin_lang])],
-    )
-    reader, writer = router.start()
+    topology = (TestTopology()
+        .router(router_binaries[router_lang])
+        .host("default", relay_host_binaries[host_lang], [plugin_binaries[plugin_lang]])
+        .build())
 
-    try:
+    with topology:
+        reader, writer = topology.start()
+
         test_value = 42
         input_json = json.dumps({"value": test_value}).encode()
         req_id = make_req_id()
@@ -83,8 +83,6 @@ def test_double(router_binaries, relay_host_binaries, plugin_binaries, router_la
         assert result == expected, (
             f"[{router_lang}/{host_lang}/{plugin_lang}] double mismatch: expected {expected}, got {result}"
         )
-    finally:
-        router.stop()
 
 
 @pytest.mark.timeout(30)
@@ -93,14 +91,14 @@ def test_double(router_binaries, relay_host_binaries, plugin_binaries, router_la
 @pytest.mark.parametrize("router_lang", SUPPORTED_ROUTER_LANGS)
 def test_binary_echo(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang, plugin_lang):
     """Test binary echo: send all 256 byte values, receive identical data back."""
-    router = RouterProcess(
-        str(router_binaries[router_lang]),
-        str(relay_host_binaries[host_lang]),
-        [str(plugin_binaries[plugin_lang])],
-    )
-    reader, writer = router.start()
+    topology = (TestTopology()
+        .router(router_binaries[router_lang])
+        .host("default", relay_host_binaries[host_lang], [plugin_binaries[plugin_lang]])
+        .build())
 
-    try:
+    with topology:
+        reader, writer = topology.start()
+
         test_data = bytes(range(256))
         req_id = make_req_id()
         send_request(writer, req_id, TEST_CAPS["binary_echo"], test_data)
@@ -109,8 +107,6 @@ def test_binary_echo(router_binaries, relay_host_binaries, plugin_binaries, rout
         assert output == test_data, (
             f"[{router_lang}/{host_lang}/{plugin_lang}] binary echo mismatch (len: {len(output)} vs {len(test_data)})"
         )
-    finally:
-        router.stop()
 
 
 @pytest.mark.timeout(30)
@@ -119,14 +115,13 @@ def test_binary_echo(router_binaries, relay_host_binaries, plugin_binaries, rout
 @pytest.mark.parametrize("router_lang", SUPPORTED_ROUTER_LANGS)
 def test_get_manifest(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang, plugin_lang):
     """Test manifest retrieval via get_manifest cap."""
-    router = RouterProcess(
-        str(router_binaries[router_lang]),
-        str(relay_host_binaries[host_lang]),
-        [str(plugin_binaries[plugin_lang])],
-    )
-    reader, writer = router.start()
+    topology = (TestTopology()
+        .router(router_binaries[router_lang])
+        .host("default", relay_host_binaries[host_lang], [plugin_binaries[plugin_lang]])
+        .build())
 
-    try:
+    with topology:
+        reader, writer = topology.start()
         req_id = make_req_id()
         send_request(writer, req_id, TEST_CAPS["get_manifest"], b"", media_urn="media:void")
 
@@ -192,5 +187,3 @@ def test_get_manifest(router_binaries, relay_host_binaries, plugin_binaries, rou
         assert len(manifest["caps"]) >= 10, (
             f"[{router_lang}/{host_lang}/{plugin_lang}] manifest has {len(manifest['caps'])} caps, expected >= 10"
         )
-    finally:
-        router.stop()

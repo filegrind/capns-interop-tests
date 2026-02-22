@@ -20,7 +20,7 @@ from capns_interop.framework.frame_test_helper import (
     read_response,
     decode_cbor_response,
 )
-from capns_interop.framework.router_process import RouterProcess
+from capns_interop.framework.test_topology import TestTopology
 
 SUPPORTED_ROUTER_LANGS = ["rust"]
 SUPPORTED_HOST_LANGS = ["rust"]
@@ -33,14 +33,13 @@ SUPPORTED_PLUGIN_LANGS = ["rust", "go", "python", "swift"]
 @pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
 def test_latency_benchmark(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang, plugin_lang):
     """Benchmark request/response latency: 100 echo iterations, report p50/p95/p99."""
-    router = RouterProcess(
-        str(router_binaries[router_lang]),
-        str(relay_host_binaries[host_lang]),
-        [str(plugin_binaries[plugin_lang])],
-    )
-    reader, writer = router.start()
+    topology = (TestTopology()
+        .router(router_binaries[router_lang])
+        .host("default", relay_host_binaries[host_lang], [plugin_binaries[plugin_lang]])
+        .build())
 
-    try:
+    with topology:
+        reader, writer = topology.start()
         iterations = 100
         latencies = []
 
@@ -74,8 +73,7 @@ def test_latency_benchmark(router_binaries, relay_host_binaries, plugin_binaries
         assert p99 < threshold, (
             f"[{router_lang}/{host_lang}/{plugin_lang}] p99 latency too high: {p99:.2f}ms (threshold: {threshold}ms)"
         )
-    finally:
-        router.stop()
+
 
 
 @pytest.mark.timeout(60)
@@ -84,14 +82,13 @@ def test_latency_benchmark(router_binaries, relay_host_binaries, plugin_binaries
 @pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
 def test_throughput_benchmark(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang, plugin_lang):
     """Benchmark throughput: echo requests/second over 2 seconds."""
-    router = RouterProcess(
-        str(router_binaries[router_lang]),
-        str(relay_host_binaries[host_lang]),
-        [str(plugin_binaries[plugin_lang])],
-    )
-    reader, writer = router.start()
+    topology = (TestTopology()
+        .router(router_binaries[router_lang])
+        .host("default", relay_host_binaries[host_lang], [plugin_binaries[plugin_lang]])
+        .build())
 
-    try:
+    with topology:
+        reader, writer = topology.start()
         duration_seconds = 2
         test_input = b"throughput"
         count = 0
@@ -120,8 +117,7 @@ def test_throughput_benchmark(router_binaries, relay_host_binaries, plugin_binar
         assert rps > threshold, (
             f"[{router_lang}/{host_lang}/{plugin_lang}] throughput too low: {rps:.2f} req/s (threshold: {threshold})"
         )
-    finally:
-        router.stop()
+
 
 
 @pytest.mark.timeout(60)
@@ -130,14 +126,13 @@ def test_throughput_benchmark(router_binaries, relay_host_binaries, plugin_binar
 @pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
 def test_large_payload_throughput(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang, plugin_lang):
     """Benchmark large payload transfer: 10MB generated data, report MB/s."""
-    router = RouterProcess(
-        str(router_binaries[router_lang]),
-        str(relay_host_binaries[host_lang]),
-        [str(plugin_binaries[plugin_lang])],
-    )
-    reader, writer = router.start()
+    topology = (TestTopology()
+        .router(router_binaries[router_lang])
+        .host("default", relay_host_binaries[host_lang], [plugin_binaries[plugin_lang]])
+        .build())
 
-    try:
+    with topology:
+        reader, writer = topology.start()
         payload_size = 10 * 1024 * 1024  # 10 MB
         input_json = json.dumps({"value": payload_size}).encode()
 
@@ -177,8 +172,7 @@ def test_large_payload_throughput(router_binaries, relay_host_binaries, plugin_b
         assert mb_per_sec > 1, (
             f"[{router_lang}/{host_lang}/{plugin_lang}] throughput too low: {mb_per_sec:.2f} MB/s"
         )
-    finally:
-        router.stop()
+
 
 
 @pytest.mark.timeout(60)
@@ -187,14 +181,13 @@ def test_large_payload_throughput(router_binaries, relay_host_binaries, plugin_b
 @pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
 def test_concurrent_stress(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang, plugin_lang):
     """Test concurrent workload simulation: plugin processes 100 work units."""
-    router = RouterProcess(
-        str(router_binaries[router_lang]),
-        str(relay_host_binaries[host_lang]),
-        [str(plugin_binaries[plugin_lang])],
-    )
-    reader, writer = router.start()
+    topology = (TestTopology()
+        .router(router_binaries[router_lang])
+        .host("default", relay_host_binaries[host_lang], [plugin_binaries[plugin_lang]])
+        .build())
 
-    try:
+    with topology:
+        reader, writer = topology.start()
         work_units = 100
         input_json = json.dumps({"value": work_units}).encode()
         req_id = make_req_id()
@@ -209,5 +202,4 @@ def test_concurrent_stress(router_binaries, relay_host_binaries, plugin_binaries
         assert output_str.startswith("computed-"), (
             f"[{router_lang}/{host_lang}/{plugin_lang}] unexpected output: {output_str!r}"
         )
-    finally:
-        router.stop()
+

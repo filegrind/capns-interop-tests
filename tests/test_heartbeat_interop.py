@@ -17,7 +17,7 @@ from capns_interop.framework.frame_test_helper import (
     send_request,
     read_response,
 )
-from capns_interop.framework.router_process import RouterProcess
+from capns_interop.framework.test_topology import TestTopology
 
 SUPPORTED_ROUTER_LANGS = ["rust"]
 SUPPORTED_HOST_LANGS = ["rust"]
@@ -30,14 +30,13 @@ SUPPORTED_PLUGIN_LANGS = ["rust", "go", "python", "swift"]
 @pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
 def test_basic_heartbeat(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang, plugin_lang):
     """Test heartbeat during 500ms operation: plugin sends heartbeats, host handles locally."""
-    router = RouterProcess(
-        str(router_binaries[router_lang]),
-        str(relay_host_binaries[host_lang]),
-        [str(plugin_binaries[plugin_lang])],
-    )
-    reader, writer = router.start()
+    topology = (TestTopology()
+        .router(router_binaries[router_lang])
+        .host("default", relay_host_binaries[host_lang], [plugin_binaries[plugin_lang]])
+        .build())
 
-    try:
+    with topology:
+        reader, writer = topology.start()
         duration_ms = 500
         input_json = json.dumps({"value": duration_ms}).encode()
         req_id = make_req_id()
@@ -53,8 +52,7 @@ def test_basic_heartbeat(router_binaries, relay_host_binaries, plugin_binaries, 
         assert output_str == expected, (
             f"[{router_lang}/{host_lang}/{plugin_lang}] expected {expected!r}, got {output_str!r}"
         )
-    finally:
-        router.stop()
+
 
 
 @pytest.mark.timeout(30)
@@ -63,14 +61,13 @@ def test_basic_heartbeat(router_binaries, relay_host_binaries, plugin_binaries, 
 @pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
 def test_long_operation_heartbeat(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang, plugin_lang):
     """Test heartbeat during 2-second operation: verifies no timeout/deadlock."""
-    router = RouterProcess(
-        str(router_binaries[router_lang]),
-        str(relay_host_binaries[host_lang]),
-        [str(plugin_binaries[plugin_lang])],
-    )
-    reader, writer = router.start()
+    topology = (TestTopology()
+        .router(router_binaries[router_lang])
+        .host("default", relay_host_binaries[host_lang], [plugin_binaries[plugin_lang]])
+        .build())
 
-    try:
+    with topology:
+        reader, writer = topology.start()
         duration_ms = 2000
         input_json = json.dumps({"value": duration_ms}).encode()
         req_id = make_req_id()
@@ -86,8 +83,7 @@ def test_long_operation_heartbeat(router_binaries, relay_host_binaries, plugin_b
         assert output_str == expected, (
             f"[{router_lang}/{host_lang}/{plugin_lang}] expected {expected!r}, got {output_str!r}"
         )
-    finally:
-        router.stop()
+
 
 
 @pytest.mark.timeout(30)
@@ -96,14 +92,13 @@ def test_long_operation_heartbeat(router_binaries, relay_host_binaries, plugin_b
 @pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
 def test_status_updates(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang, plugin_lang):
     """Test status updates during processing: plugin sends LOG frames, verify response."""
-    router = RouterProcess(
-        str(router_binaries[router_lang]),
-        str(relay_host_binaries[host_lang]),
-        [str(plugin_binaries[plugin_lang])],
-    )
-    reader, writer = router.start()
+    topology = (TestTopology()
+        .router(router_binaries[router_lang])
+        .host("default", relay_host_binaries[host_lang], [plugin_binaries[plugin_lang]])
+        .build())
 
-    try:
+    with topology:
+        reader, writer = topology.start()
         steps = 5
         input_json = json.dumps({"value": steps}).encode()
         req_id = make_req_id()
@@ -118,5 +113,4 @@ def test_status_updates(router_binaries, relay_host_binaries, plugin_binaries, r
         assert output_str == "completed", (
             f"[{router_lang}/{host_lang}/{plugin_lang}] expected 'completed', got {output_str!r}"
         )
-    finally:
-        router.stop()
+
