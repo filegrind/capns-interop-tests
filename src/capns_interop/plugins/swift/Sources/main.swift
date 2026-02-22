@@ -324,12 +324,35 @@ struct GenerateLargeOp: Op, Sendable {
         let json = try parseJSONInput(value)
         let size = json["value"] as! Int
 
+        // Generate pattern block efficiently (8KB block for fast generation)
         let pattern: [UInt8] = [65, 66, 67, 68, 69, 70, 71, 72] // "ABCDEFGH"
-        var result = Data(capacity: size)
-        for i in 0..<size {
-            result.append(pattern[i % pattern.count])
+        let blockSize = 8 * 1024 // 8KB block
+        var block = Data(capacity: blockSize)
+        for i in 0..<blockSize {
+            block.append(pattern[i % pattern.count])
         }
-        try req.output().write(result)
+
+        // Write in 256KB chunks (matching protocol chunk size) for streaming
+        let chunkSize = 256 * 1024
+        var remaining = size
+        var offset = 0
+
+        while remaining > 0 {
+            let currentChunkSize = min(chunkSize, remaining)
+            var chunk = Data(capacity: currentChunkSize)
+
+            // Build chunk from pre-generated blocks
+            var chunkRemaining = currentChunkSize
+            while chunkRemaining > 0 {
+                let copySize = min(blockSize, chunkRemaining)
+                chunk.append(block[0..<copySize])
+                chunkRemaining -= copySize
+            }
+
+            try req.output().write(chunk)
+            remaining -= currentChunkSize
+            offset += currentChunkSize
+        }
     }
     func metadata() -> OpMetadata { OpMetadata.builder("GenerateLargeOp").build() }
 }

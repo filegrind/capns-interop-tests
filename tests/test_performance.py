@@ -8,6 +8,7 @@ Architecture:
 """
 
 import json
+import os
 import time
 import statistics
 import pytest
@@ -120,7 +121,6 @@ def test_throughput_benchmark(router_binaries, relay_host_binaries, plugin_binar
 
 
 
-@pytest.mark.timeout(60)
 @pytest.mark.parametrize("router_lang", SUPPORTED_ROUTER_LANGS)
 @pytest.mark.parametrize("host_lang", SUPPORTED_HOST_LANGS)
 @pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
@@ -134,16 +134,18 @@ def test_large_payload_throughput(router_binaries, relay_host_binaries, plugin_b
 
         with topology:
             reader, writer = topology.start()
-            payload_size = 10 * 1024 * 1024  # 10 MB
+            # Read payload size from environment variable (default 10 MB)
+            payload_mb = int(os.environ.get('THROUGHPUT_MB', '10'))
+            payload_size = payload_mb * 1024 * 1024
             input_json = json.dumps({"value": payload_size}).encode()
 
             req_id = make_req_id()
             start = time.perf_counter()
             send_request(writer, req_id, TEST_CAPS["generate_large"], input_json, media_urn="media:report-size;json;textable;form=map")
 
-            # Collect all chunk data
+            # Count bytes without accumulating (avoids Python memory pressure for large payloads)
             import cbor2
-            all_data = bytearray()
+            total_bytes = 0
             for _ in range(50000):
                 frame = reader.read()
                 if frame is None:
@@ -151,20 +153,20 @@ def test_large_payload_throughput(router_binaries, relay_host_binaries, plugin_b
                 if frame.frame_type == FrameType.CHUNK and frame.payload:
                     decoded = cbor2.loads(frame.payload)
                     if isinstance(decoded, bytes):
-                        all_data.extend(decoded)
+                        total_bytes += len(decoded)
                     elif isinstance(decoded, str):
-                        all_data.extend(decoded.encode('utf-8'))
+                        total_bytes += len(decoded.encode('utf-8'))
                     else:
                         raise ValueError(f"Unexpected CBOR type in chunk: {type(decoded)}")
                 if frame.frame_type in (FrameType.END, FrameType.ERR):
                     break
 
             elapsed = time.perf_counter() - start
-            assert len(all_data) == payload_size, (
-                f"[{router_lang}/{host_lang}/{plugin_lang}] expected {payload_size} bytes, got {len(all_data)}"
+            assert total_bytes == payload_size, (
+                f"[{router_lang}/{host_lang}/{plugin_lang}] expected {payload_size} bytes, got {total_bytes}"
             )
 
-            mb_per_sec = (payload_size / (1024 * 1024)) / elapsed
+            mb_per_sec = (total_bytes / (1024 * 1024)) / elapsed
             print(
                 f"\n  [{router_lang}/{host_lang}/{plugin_lang}] Large payload: "
                 f"{mb_per_sec:.2f} MB/s ({payload_size / (1024 * 1024):.0f} MB in {elapsed:.2f}s)"

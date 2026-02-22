@@ -176,18 +176,25 @@ let stdout = FileHandle.standardOutput
 let writer = FrameWriter(handle: stdout)
 var seqAssigner = SeqAssigner()
 
+// Track pending requests: requests sent to masters that haven't received END/ERR yet
+var pendingRequests = Set<MessageId>()
+
 fputs("[Router/main] Starting main multiplexer loop\n", stderr)
 
 // Main loop: balanced interleaving of stdin and master frames
 // Process one stdin frame, then one master frame (with timeout), repeat
 while true {
-    // Try to read ONE stdin frame (non-blocking with timeout)
-    if let frame = stdinQueue.tryPop(timeout: 0.01) {
+    // Try to read ONE stdin frame (non-blocking with minimal timeout)
+    if let frame = stdinQueue.tryPop(timeout: 0.0001) {
         fputs("[Router/main] Sending stdin frame to master: \(frame.frameType) (id=\(frame.id))\n", stderr)
         let frameId = frame.id
         let isReq = frame.frameType == FrameType.req
         do {
             try relaySwitch.sendToMaster(frame, preferredCap: nil)
+            // Track REQ frames - they need END/ERR before we can shut down
+            if isReq {
+                pendingRequests.insert(frameId)
+            }
         } catch {
             fputs("[Router/main] Error sending to master: \(error)\n", stderr)
             // On REQ failure, send ERR back to engine so it doesn't hang
@@ -202,23 +209,24 @@ while true {
     stdinEOF.lock()
     let isClosed = stdinClosed
     stdinEOF.unlock()
-    if isClosed && stdinQueue.isEmpty() {
-        fputs("[Router/main] stdin channel closed, shutting down\n", stderr)
-        break
-    }
 
-    // Try to read ONE master frame (with timeout to avoid blocking forever)
-    // Use a short timeout so we can quickly check stdin again
+    // Try to read ONE master frame (with minimal timeout for responsiveness)
     do {
-        if var frame = try relaySwitch.readFromMasters(timeout: 0.01) {
+        if var frame = try relaySwitch.readFromMasters(timeout: 0.0001) {
             fputs("[Router/main] Received from master: \(frame.frameType) (id=\(frame.id))\n", stderr)
             seqAssigner.assign(&frame)
             try writer.write(frame)
+            // Track completion: END or ERR means request is done
             if frame.frameType == FrameType.end || frame.frameType == FrameType.err {
                 seqAssigner.remove(FlowKey.fromFrame(frame))
+                pendingRequests.remove(frame.id)
             }
+        } else if isClosed && stdinQueue.isEmpty() && pendingRequests.isEmpty {
+            // Guaranteed shutdown: stdin closed AND no pending stdin frames AND all requests completed
+            fputs("[Router/main] stdin closed and all \(pendingRequests.count) pending requests completed, shutting down\n", stderr)
+            break
         }
-        // nil = timeout or no frame, that's OK, loop back to check stdin
+        // nil with stdin still open = timeout, loop back to check stdin
     } catch {
         fputs("[Router/main] ERROR reading from masters: \(error) - Router exiting and closing connections!\n", stderr)
         fputs("[Router/main] THIS IS A BUG - Router should NOT exit while test is running!\n", stderr)
@@ -227,4 +235,5 @@ while true {
 }
 
 // Cleanup
+try? writer.flush()  // Flush any buffered frames before shutdown
 fputs("[Router] Shutting down - relay hosts will continue running independently\n", stderr)
