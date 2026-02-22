@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import datetime
 import json
 import subprocess
+import sys
 import pytest
 import shutil
 from pathlib import Path
@@ -11,6 +13,11 @@ from pathlib import Path
 
 def pytest_addoption(parser):
     """Add custom command-line options."""
+    print("\n" + "="*80, file=sys.stderr)
+    print("[PYTEST] conftest.py loaded - pytest_addoption() called", file=sys.stderr)
+    print("="*80 + "\n", file=sys.stderr)
+    sys.stderr.flush()
+
     parser.addoption(
         "--clear",
         action="store_true",
@@ -27,15 +34,27 @@ def pytest_addoption(parser):
 
 def pytest_configure(config):
     """Configure pytest based on command-line options."""
-    if config.getoption("--clear"):
+    print("\n[PYTEST] pytest_configure() called", file=sys.stderr)
+    clear_flag = config.getoption("--clear")
+    langs_flag = config.getoption("--langs")
+    print(f"[PYTEST]   --clear: {clear_flag}", file=sys.stderr)
+    print(f"[PYTEST]   --langs: {langs_flag}", file=sys.stderr)
+    sys.stderr.flush()
+
+    if clear_flag:
         # When --clear is set, increase timeout to allow for cargo builds
         # Default test timeout is 30s, but cargo builds can take 2-3 minutes
         # Override the timeout setting to 10 minutes (600 seconds)
         config.option.timeout = 600
+        print(f"[PYTEST]   Test timeout set to: {config.option.timeout}s", file=sys.stderr)
+        sys.stderr.flush()
 
 
 def pytest_collection_modifyitems(config, items):
     """Modify test items based on command-line options."""
+    print(f"\n[PYTEST] pytest_collection_modifyitems() called with {len(items)} tests", file=sys.stderr)
+    sys.stderr.flush()
+
     # Filter tests by --langs option
     langs_option = config.getoption("--langs")
     if langs_option:
@@ -56,16 +75,23 @@ def pytest_collection_modifyitems(config, items):
                     continue
             filtered.append(item)
         items[:] = filtered
+        print(f"[PYTEST]   Filtered to {len(filtered)} tests for languages: {allowed_langs}", file=sys.stderr)
+        sys.stderr.flush()
 
     if config.getoption("--clear"):
         # Override timeout markers when --clear is set to allow builds
         # The @pytest.mark.timeout decorator overrides global config,
         # so we need to remove it and add our own with longer timeout
+        print(f"[PYTEST]   Setting timeout to 600s for all {len(items)} tests", file=sys.stderr)
+        sys.stderr.flush()
         for item in items:
             # Remove existing timeout markers
             item.own_markers = [m for m in item.own_markers if m.name != "timeout"]
             # Add new timeout marker with 600s (10 minutes)
             item.add_marker(pytest.mark.timeout(600))
+
+    print(f"[PYTEST] Collection complete: {len(items)} tests ready to run\n", file=sys.stderr)
+    sys.stderr.flush()
 
 
 def _clear_binary(binary: Path):
@@ -121,6 +147,16 @@ def _needs_build(binary: Path, source_dir: Path, extra_deps: list[Path] | None =
 
 def _run_make(project_root: Path, target: str):
     """Run a Makefile target, fail hard on error."""
+    import datetime
+    start_time = datetime.datetime.now()
+
+    print(f"\n{'='*80}", file=sys.stderr)
+    print(f"[BUILD] Starting: make {target}", file=sys.stderr)
+    print(f"[BUILD] Time: {start_time}", file=sys.stderr)
+    print(f"[BUILD] Working directory: {project_root}", file=sys.stderr)
+    print(f"{'='*80}\n", file=sys.stderr)
+    sys.stderr.flush()
+
     result = subprocess.run(
         ["make", target],
         cwd=str(project_root),
@@ -128,7 +164,21 @@ def _run_make(project_root: Path, target: str):
         text=True,
         timeout=300,  # 5 minute timeout - fail hard if cargo is stuck
     )
+
+    end_time = datetime.datetime.now()
+    duration = (end_time - start_time).total_seconds()
+
+    print(f"\n{'='*80}", file=sys.stderr)
+    print(f"[BUILD] Finished: make {target}", file=sys.stderr)
+    print(f"[BUILD] Duration: {duration:.1f}s", file=sys.stderr)
+    print(f"[BUILD] Exit code: {result.returncode}", file=sys.stderr)
+    print(f"{'='*80}\n", file=sys.stderr)
+    sys.stderr.flush()
+
     if result.returncode != 0:
+        print(f"[BUILD ERROR] STDOUT:\n{result.stdout}", file=sys.stderr)
+        print(f"[BUILD ERROR] STDERR:\n{result.stderr}", file=sys.stderr)
+        sys.stderr.flush()
         raise RuntimeError(
             f"make {target} failed (exit {result.returncode}):\nSTDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
         )
@@ -137,12 +187,22 @@ def _run_make(project_root: Path, target: str):
 @pytest.fixture(scope="session")
 def project_root():
     """Return the project root directory."""
-    return Path(__file__).parent.parent
+    print("\n[FIXTURE] project_root fixture called", file=sys.stderr)
+    sys.stderr.flush()
+    root = Path(__file__).parent.parent
+    print(f"[FIXTURE] Project root: {root}\n", file=sys.stderr)
+    sys.stderr.flush()
+    return root
 
 
 @pytest.fixture(scope="session")
 def plugin_binaries(project_root, request):
     """Return paths to built plugin binaries, auto-building if needed."""
+    print("\n" + "="*80, file=sys.stderr)
+    print("[FIXTURE] plugin_binaries fixture called - starting plugin binary check/build", file=sys.stderr)
+    print("="*80 + "\n", file=sys.stderr)
+    sys.stderr.flush()
+
     clear_cache = request.config.getoption("--clear")
     artifacts = project_root / "artifacts" / "build"
     src = project_root / "src" / "capns_interop" / "plugins"
@@ -177,17 +237,35 @@ def plugin_binaries(project_root, request):
 
     # Clear cached binaries if --clear option is set
     if clear_cache:
-        print("\n--clear: Removing cached plugin binaries...")
+        print("\n[FIXTURE] --clear flag set: Removing cached plugin binaries...", file=sys.stderr)
         for lang, binary_path in binaries.items():
+            if binary_path.exists():
+                print(f"[FIXTURE] Clearing {lang}: {binary_path}", file=sys.stderr)
             _clear_binary(binary_path)
+        print("[FIXTURE] Cache clear complete\n", file=sys.stderr)
+        sys.stderr.flush()
+
+    print(f"\n[FIXTURE] Checking plugin binaries for languages: {list(targets.keys())}", file=sys.stderr)
+    sys.stderr.flush()
 
     for lang, (target, source_dir, extra_deps) in targets.items():
         binary_path = binaries[lang]
-        old_mtime = binary_path.stat().st_mtime if binary_path.exists() else 0
+        exists = binary_path.exists()
+        old_mtime = binary_path.stat().st_mtime if exists else 0
+
+        print(f"[FIXTURE] Checking {lang} plugin: {binary_path}", file=sys.stderr)
+        print(f"[FIXTURE]   - Exists: {exists}", file=sys.stderr)
+        if exists:
+            print(f"[FIXTURE]   - Modified: {old_mtime}", file=sys.stderr)
+        sys.stderr.flush()
 
         if _needs_build(binary_path, source_dir, extra_deps, force=clear_cache):
-            print(f"\nAuto-building {lang} plugin...")
+            print(f"[FIXTURE] Build needed for {lang} plugin", file=sys.stderr)
+            sys.stderr.flush()
             _run_make(project_root, target)
+        else:
+            print(f"[FIXTURE] {lang} plugin is up-to-date, skipping build", file=sys.stderr)
+            sys.stderr.flush()
 
             # HARD CHECK: Binary must exist after build
             if not binary_path.exists():
@@ -327,6 +405,11 @@ def throughput_collector(project_root):
 @pytest.fixture(scope="session")
 def relay_host_binaries(project_root, request):
     """Return paths to built relay host binaries, auto-building if needed."""
+    print("\n" + "="*80, file=sys.stderr)
+    print("[FIXTURE] relay_host_binaries fixture called - starting relay host binary check/build", file=sys.stderr)
+    print("="*80 + "\n", file=sys.stderr)
+    sys.stderr.flush()
+
     clear_cache = request.config.getoption("--clear")
     artifacts = project_root / "artifacts" / "build"
     hosts_src = project_root / "src" / "capns_interop" / "hosts"
@@ -360,18 +443,36 @@ def relay_host_binaries(project_root, request):
 
     # Clear cached binaries if --clear option is set
     if clear_cache:
-        print("\n--clear: Removing cached relay host binaries...")
+        print("\n[FIXTURE] --clear flag set: Removing cached relay host binaries...", file=sys.stderr)
         for lang, binary_path in binaries.items():
             if lang in targets:  # Only clear binaries that have build targets
+                if binary_path.exists():
+                    print(f"[FIXTURE] Clearing {lang} relay host: {binary_path}", file=sys.stderr)
                 _clear_binary(binary_path)
+        print("[FIXTURE] Cache clear complete\n", file=sys.stderr)
+        sys.stderr.flush()
+
+    print(f"\n[FIXTURE] Checking relay host binaries for languages: {list(targets.keys())}", file=sys.stderr)
+    sys.stderr.flush()
 
     for lang, (target, source_dir, extra_deps) in targets.items():
         binary_path = binaries[lang]
-        old_mtime = binary_path.stat().st_mtime if binary_path.exists() else 0
+        exists = binary_path.exists()
+        old_mtime = binary_path.stat().st_mtime if exists else 0
+
+        print(f"[FIXTURE] Checking {lang} relay host: {binary_path}", file=sys.stderr)
+        print(f"[FIXTURE]   - Exists: {exists}", file=sys.stderr)
+        if exists:
+            print(f"[FIXTURE]   - Modified: {old_mtime}", file=sys.stderr)
+        sys.stderr.flush()
 
         if _needs_build(binary_path, source_dir, extra_deps, force=clear_cache):
-            print(f"\nAuto-building {lang} relay host...")
+            print(f"[FIXTURE] Build needed for {lang} relay host", file=sys.stderr)
+            sys.stderr.flush()
             _run_make(project_root, target)
+        else:
+            print(f"[FIXTURE] {lang} relay host is up-to-date, skipping build", file=sys.stderr)
+            sys.stderr.flush()
 
             # HARD CHECK: Binary must exist after build
             if not binary_path.exists():
@@ -395,6 +496,11 @@ def relay_host_binaries(project_root, request):
 @pytest.fixture(scope="session")
 def router_binaries(project_root, request):
     """Return paths to built router binaries, auto-building if needed."""
+    print("\n" + "="*80, file=sys.stderr)
+    print("[FIXTURE] router_binaries fixture called - starting router binary check/build", file=sys.stderr)
+    print("="*80 + "\n", file=sys.stderr)
+    sys.stderr.flush()
+
     clear_cache = request.config.getoption("--clear")
     artifacts = project_root / "artifacts" / "build"
     routers_src = project_root / "src" / "capns_interop" / "routers"
@@ -428,18 +534,36 @@ def router_binaries(project_root, request):
 
     # Clear cached binaries if --clear option is set
     if clear_cache:
-        print("\n--clear: Removing cached router binaries...")
+        print("\n[FIXTURE] --clear flag set: Removing cached router binaries...", file=sys.stderr)
         for lang, binary_path in binaries.items():
             if lang in targets:  # Only clear binaries that have build targets
+                if binary_path.exists():
+                    print(f"[FIXTURE] Clearing {lang} router: {binary_path}", file=sys.stderr)
                 _clear_binary(binary_path)
+        print("[FIXTURE] Cache clear complete\n", file=sys.stderr)
+        sys.stderr.flush()
+
+    print(f"\n[FIXTURE] Checking router binaries for languages: {list(targets.keys())}", file=sys.stderr)
+    sys.stderr.flush()
 
     for lang, (target, source_dir, extra_deps) in targets.items():
         binary_path = binaries[lang]
-        old_mtime = binary_path.stat().st_mtime if binary_path.exists() else 0
+        exists = binary_path.exists()
+        old_mtime = binary_path.stat().st_mtime if exists else 0
+
+        print(f"[FIXTURE] Checking {lang} router: {binary_path}", file=sys.stderr)
+        print(f"[FIXTURE]   - Exists: {exists}", file=sys.stderr)
+        if exists:
+            print(f"[FIXTURE]   - Modified: {old_mtime}", file=sys.stderr)
+        sys.stderr.flush()
 
         if _needs_build(binary_path, source_dir, extra_deps, force=clear_cache):
-            print(f"\nAuto-building {lang} router...")
+            print(f"[FIXTURE] Build needed for {lang} router", file=sys.stderr)
+            sys.stderr.flush()
             _run_make(project_root, target)
+        else:
+            print(f"[FIXTURE] {lang} router is up-to-date, skipping build", file=sys.stderr)
+            sys.stderr.flush()
 
             # HARD CHECK: Binary must exist after build
             if not binary_path.exists():
