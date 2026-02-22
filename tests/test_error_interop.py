@@ -51,6 +51,12 @@ def test_throw_error(router_binaries, relay_host_binaries, plugin_binaries, rout
             f"[{router_lang}/{host_lang}/{plugin_lang}] expected ERR frame, got: "
             f"{[f.frame_type for f in frames]}"
         )
+        # Verify routing_id is present for relay routing
+        err_frame = err_frames[0]
+        assert err_frame.routing_id == req_id, (
+            f"[{router_lang}/{host_lang}/{plugin_lang}] ERR frame missing routing_id (XID): "
+            f"expected {req_id}, got {err_frame.routing_id}"
+        )
     finally:
         router.stop()
 
@@ -79,6 +85,12 @@ def test_invalid_cap(router_binaries, relay_host_binaries, plugin_binaries, rout
             f"[{router_lang}/{host_lang}/{plugin_lang}] expected ERR for unknown cap, got: "
             f"{[f.frame_type for f in frames]}"
         )
+        # Verify routing_id is present for relay routing
+        err_frame = err_frames[0]
+        assert err_frame.routing_id == req_id, (
+            f"[{router_lang}/{host_lang}/{plugin_lang}] ERR frame missing routing_id (XID): "
+            f"expected {req_id}, got {err_frame.routing_id}"
+        )
     finally:
         router.stop()
 
@@ -106,6 +118,12 @@ def test_malformed_payload(router_binaries, relay_host_binaries, plugin_binaries
         assert len(err_frames) > 0, (
             f"[{router_lang}/{host_lang}/{plugin_lang}] expected ERR for malformed JSON, got: "
             f"{[f.frame_type for f in frames]}"
+        )
+        # Verify routing_id is present for relay routing
+        err_frame = err_frames[0]
+        assert err_frame.routing_id == req_id, (
+            f"[{router_lang}/{host_lang}/{plugin_lang}] ERR frame missing routing_id (XID): "
+            f"expected {req_id}, got {err_frame.routing_id}"
         )
     finally:
         router.stop()
