@@ -68,30 +68,58 @@ When Go/JavaScript implement CBOR runtimes:
 
 ## Usage
 
-# Run all interop tests (both chunking and file-path)
-  PYTHONPATH=src python -m pytest tests/test_chunking_interop.py tests/test_filepath_interop.py -v
+```bash
+# Run all interop tests
+PYTHONPATH=src python -m pytest tests/ -v
 
-  # Or run all tests in the tests directory
-  PYTHONPATH=src python -m pytest tests/ -v
+# For a summary view (less verbose)
+PYTHONPATH=src python -m pytest tests/ -v --tb=short
 
-  # For a summary view (less verbose)
-  PYTHONPATH=src python -m pytest tests/ -v --tb=short
+# To see timing
+PYTHONPATH=src python -m pytest tests/ -v --durations=10
 
-  # To see timing
-  PYTHONPATH=src python -m pytest tests/ -v --durations=10
+# Run performance benchmarks and generate throughput matrix
+PYTHONPATH=src python -m pytest tests/test_performance.py::test_large_payload_throughput -v
 
-  Expected Results:
-  - 24 chunking tests (6 scenarios × 4 languages)
-  - 22 file-path tests (7-8 scenarios × 3-4 languages)
-  - Total: 46 tests, all passing
+# Display throughput matrix
+python3 show_throughput_matrix.py
+```
 
-  Note: The tests require all plugins to be built first. If you need to rebuild:
+## Throughput Matrix
 
-  make all  # Builds all plugins (Rust, Go, Python, Swift)
+Performance tests generate a throughput matrix showing MB/s for each host-plugin combination:
 
-  Or build individually:
-  make build-rust
-  make build-go
-  make build-python
-  make build-swift
+```
+THROUGHPUT MATRIX (MB/s)
+
+     host ↓ \ plugin →      rust        go    python     swift
+  ────────────────────  ────────  ────────  ────────  ────────
+                  rust    106.96     97.99      6.43     20.44
+                    go         X         X         X         X
+                python        --        --        --        --
+                 swift    101.35    105.44      6.46     20.65
+
+RANKING (fastest to slowest)
+
+  rust-rust              106.96 MB/s
+  swift-go               105.44 MB/s
+  swift-rust             101.35 MB/s
+  ...
+```
+
+The matrix is automatically generated when running performance tests and displayed at the end of test runs via `test.sh`.
+
+## Building
+
+Note: Tests require all plugins to be built first.
+
+```bash
+make all  # Builds all plugins (Rust, Go, Python, Swift)
+
+# Or build individually:
+make build-rust
+make build-go
+make build-python
+make build-swift
+```
 

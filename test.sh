@@ -32,4 +32,10 @@ echo "Test run finished: $(date)"
 echo "Exit code: $EXIT_CODE"
 echo "========================================"
 
+# Display throughput matrix if it exists
+if [ -f "artifacts/throughput_matrix.json" ]; then
+    echo ""
+    python3 show_throughput_matrix.py
+fi
+
 exit $EXIT_CODE

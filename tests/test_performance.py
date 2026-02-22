@@ -23,7 +23,7 @@ from capns_interop.framework.frame_test_helper import (
 from capns_interop.framework.test_topology import TestTopology
 
 SUPPORTED_ROUTER_LANGS = ["rust"]
-SUPPORTED_HOST_LANGS = ["rust"]
+SUPPORTED_HOST_LANGS = ["rust", "go", "swift"]  # All relay hosts (no python relay host)
 SUPPORTED_PLUGIN_LANGS = ["rust", "go", "python", "swift"]
 
 
