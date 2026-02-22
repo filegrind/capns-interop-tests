@@ -124,54 +124,62 @@ def test_throughput_benchmark(router_binaries, relay_host_binaries, plugin_binar
 @pytest.mark.parametrize("router_lang", SUPPORTED_ROUTER_LANGS)
 @pytest.mark.parametrize("host_lang", SUPPORTED_HOST_LANGS)
 @pytest.mark.parametrize("plugin_lang", SUPPORTED_PLUGIN_LANGS)
-def test_large_payload_throughput(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang, plugin_lang):
+def test_large_payload_throughput(router_binaries, relay_host_binaries, plugin_binaries, router_lang, host_lang, plugin_lang, throughput_results):
     """Benchmark large payload transfer: 10MB generated data, report MB/s."""
-    topology = (TestTopology()
-        .router(router_binaries[router_lang])
-        .host("default", relay_host_binaries[host_lang], [plugin_binaries[plugin_lang]])
-        .build())
+    try:
+        topology = (TestTopology()
+            .router(router_binaries[router_lang])
+            .host("default", relay_host_binaries[host_lang], [plugin_binaries[plugin_lang]])
+            .build())
 
-    with topology:
-        reader, writer = topology.start()
-        payload_size = 10 * 1024 * 1024  # 10 MB
-        input_json = json.dumps({"value": payload_size}).encode()
+        with topology:
+            reader, writer = topology.start()
+            payload_size = 10 * 1024 * 1024  # 10 MB
+            input_json = json.dumps({"value": payload_size}).encode()
 
-        req_id = make_req_id()
-        start = time.perf_counter()
-        send_request(writer, req_id, TEST_CAPS["generate_large"], input_json, media_urn="media:report-size;json;textable;form=map")
+            req_id = make_req_id()
+            start = time.perf_counter()
+            send_request(writer, req_id, TEST_CAPS["generate_large"], input_json, media_urn="media:report-size;json;textable;form=map")
 
-        # Collect all chunk data
-        import cbor2
-        all_data = bytearray()
-        for _ in range(50000):
-            frame = reader.read()
-            if frame is None:
-                break
-            if frame.frame_type == FrameType.CHUNK and frame.payload:
-                decoded = cbor2.loads(frame.payload)
-                if isinstance(decoded, bytes):
-                    all_data.extend(decoded)
-                elif isinstance(decoded, str):
-                    all_data.extend(decoded.encode('utf-8'))
-                else:
-                    raise ValueError(f"Unexpected CBOR type in chunk: {type(decoded)}")
-            if frame.frame_type in (FrameType.END, FrameType.ERR):
-                break
+            # Collect all chunk data
+            import cbor2
+            all_data = bytearray()
+            for _ in range(50000):
+                frame = reader.read()
+                if frame is None:
+                    break
+                if frame.frame_type == FrameType.CHUNK and frame.payload:
+                    decoded = cbor2.loads(frame.payload)
+                    if isinstance(decoded, bytes):
+                        all_data.extend(decoded)
+                    elif isinstance(decoded, str):
+                        all_data.extend(decoded.encode('utf-8'))
+                    else:
+                        raise ValueError(f"Unexpected CBOR type in chunk: {type(decoded)}")
+                if frame.frame_type in (FrameType.END, FrameType.ERR):
+                    break
 
-        elapsed = time.perf_counter() - start
-        assert len(all_data) == payload_size, (
-            f"[{router_lang}/{host_lang}/{plugin_lang}] expected {payload_size} bytes, got {len(all_data)}"
-        )
+            elapsed = time.perf_counter() - start
+            assert len(all_data) == payload_size, (
+                f"[{router_lang}/{host_lang}/{plugin_lang}] expected {payload_size} bytes, got {len(all_data)}"
+            )
 
-        mb_per_sec = (payload_size / (1024 * 1024)) / elapsed
-        print(
-            f"\n  [{router_lang}/{host_lang}/{plugin_lang}] Large payload: "
-            f"{mb_per_sec:.2f} MB/s ({payload_size / (1024 * 1024):.0f} MB in {elapsed:.2f}s)"
-        )
+            mb_per_sec = (payload_size / (1024 * 1024)) / elapsed
+            print(
+                f"\n  [{router_lang}/{host_lang}/{plugin_lang}] Large payload: "
+                f"{mb_per_sec:.2f} MB/s ({payload_size / (1024 * 1024):.0f} MB in {elapsed:.2f}s)"
+            )
 
-        assert mb_per_sec > 1, (
-            f"[{router_lang}/{host_lang}/{plugin_lang}] throughput too low: {mb_per_sec:.2f} MB/s"
-        )
+            # Record throughput result for matrix display
+            throughput_results.record(host_lang, plugin_lang, mb_per_sec, "pass")
+
+            assert mb_per_sec > 1, (
+                f"[{router_lang}/{host_lang}/{plugin_lang}] throughput too low: {mb_per_sec:.2f} MB/s"
+            )
+    except Exception as e:
+        # Record failure
+        throughput_results.record(host_lang, plugin_lang, None, "fail")
+        raise
 
 
 

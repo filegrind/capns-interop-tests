@@ -606,3 +606,47 @@ def swift_plugin(plugin_binaries):
 def go_plugin(plugin_binaries):
     """Return path to Go plugin."""
     return plugin_binaries["go"]
+
+
+# =============================================================================
+# Throughput Matrix Collection
+# =============================================================================
+
+@pytest.fixture(scope="session")
+def throughput_results(request):
+    """Session-scoped fixture to collect throughput benchmark results.
+
+    Tests can call throughput_results.record(host_lang, plugin_lang, mb_per_sec, status)
+    to record their results. At session end, pytest_sessionfinish writes the matrix to JSON.
+    """
+    class ThroughputCollector:
+        def __init__(self):
+            self.data = {}
+
+        def record(self, host_lang, plugin_lang, mb_per_sec=None, status="pass"):
+            """Record throughput result for host-plugin combination."""
+            if host_lang not in self.data:
+                self.data[host_lang] = {}
+            self.data[host_lang][plugin_lang] = {
+                "mb_per_sec": mb_per_sec,
+                "status": status
+            }
+
+    collector = ThroughputCollector()
+    # Attach to config so pytest_sessionfinish can access it
+    request.config._throughput_collector = collector
+    return collector
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Write throughput matrix to JSON after all tests complete."""
+    collector = getattr(session.config, '_throughput_collector', None)
+    if collector and collector.data:
+        artifacts_dir = session.config.rootpath / "artifacts"
+        artifacts_dir.mkdir(exist_ok=True)
+        output_file = artifacts_dir / "throughput_matrix.json"
+
+        with open(output_file, 'w') as f:
+            json.dump(collector.data, f, indent=2)
+
+        print(f"\n[PYTEST] Throughput matrix written to: {output_file}", file=sys.stderr)
