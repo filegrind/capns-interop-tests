@@ -68,7 +68,7 @@ def test_double(router_binaries, relay_host_binaries, plugin_binaries, router_la
         test_value = 42
         input_json = json.dumps({"value": test_value}).encode()
         req_id = make_req_id()
-        send_request(writer, req_id, TEST_CAPS["double"], input_json, media_urn="media:order-value;json;textable;form=map")
+        send_request(writer, req_id, TEST_CAPS["double"], input_json, media_urn="media:order-value;json;textable;record")
         output, frames = read_response(reader)
 
         # Plugin can return integer directly (CBOR) or JSON bytes

@@ -83,7 +83,7 @@ def test_nested_call(router_binaries, relay_host_binaries, plugin_binaries, rout
         value = 21
         input_json = json.dumps({"value": value}).encode()
         req_id = make_req_id()
-        send_request(writer, req_id, TEST_CAPS["nested_call"], input_json, media_urn="media:order-value;json;textable;form=map")
+        send_request(writer, req_id, TEST_CAPS["nested_call"], input_json, media_urn="media:order-value;json;textable;record")
         output, frames = read_response(reader)
 
         if isinstance(output, bytes):

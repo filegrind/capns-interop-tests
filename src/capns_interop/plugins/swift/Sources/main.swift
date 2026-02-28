@@ -24,12 +24,12 @@ func buildManifest() -> [String: Any] {
             "command": "echo"
         ],
         [
-            "urn": "cap:in=\"media:order-value;json;textable;form=map\";op=double;out=\"media:loyalty-points;integer;textable;numeric;form=scalar\"",
+            "urn": "cap:in=\"media:order-value;json;textable;record\";op=double;out=\"media:loyalty-points;integer;textable;numeric\"",
             "title": "Double",
             "command": "double"
         ],
         [
-            "urn": "cap:in=\"media:update-count;json;textable;form=map\";op=stream_chunks;out=\"media:order-updates;textable\"",
+            "urn": "cap:in=\"media:update-count;json;textable;record\";op=stream_chunks;out=\"media:order-updates;textable\"",
             "title": "Stream Chunks",
             "command": "stream_chunks"
         ],
@@ -39,72 +39,72 @@ func buildManifest() -> [String: Any] {
             "command": "binary_echo"
         ],
         [
-            "urn": "cap:in=\"media:payment-delay-ms;json;textable;form=map\";op=slow_response;out=\"media:payment-result;textable;form=scalar\"",
+            "urn": "cap:in=\"media:payment-delay-ms;json;textable;record\";op=slow_response;out=\"media:payment-result;textable\"",
             "title": "Slow Response",
             "command": "slow_response"
         ],
         [
-            "urn": "cap:in=\"media:report-size;json;textable;form=map\";op=generate_large;out=\"media:sales-report\"",
+            "urn": "cap:in=\"media:report-size;json;textable;record\";op=generate_large;out=\"media:sales-report\"",
             "title": "Generate Large",
             "command": "generate_large"
         ],
         [
-            "urn": "cap:in=\"media:fulfillment-steps;json;textable;form=map\";op=with_status;out=\"media:fulfillment-status;textable;form=scalar\"",
+            "urn": "cap:in=\"media:fulfillment-steps;json;textable;record\";op=with_status;out=\"media:fulfillment-status;textable\"",
             "title": "With Status",
             "command": "with_status"
         ],
         [
-            "urn": "cap:in=\"media:payment-error;json;textable;form=map\";op=throw_error;out=\"media:void\"",
+            "urn": "cap:in=\"media:payment-error;json;textable;record\";op=throw_error;out=\"media:void\"",
             "title": "Throw Error",
             "command": "throw_error"
         ],
         [
-            "urn": "cap:in=\"media:customer-message;textable;form=scalar\";op=peer_echo;out=\"media:customer-message;textable;form=scalar\"",
+            "urn": "cap:in=\"media:customer-message;textable\";op=peer_echo;out=\"media:customer-message;textable\"",
             "title": "Peer Echo",
             "command": "peer_echo"
         ],
         [
-            "urn": "cap:in=\"media:order-value;json;textable;form=map\";op=nested_call;out=\"media:final-price;integer;textable;numeric;form=scalar\"",
+            "urn": "cap:in=\"media:order-value;json;textable;record\";op=nested_call;out=\"media:final-price;integer;textable;numeric\"",
             "title": "Nested Call",
             "command": "nested_call"
         ],
         [
-            "urn": "cap:in=\"media:monitoring-duration-ms;json;textable;form=map\";op=heartbeat_stress;out=\"media:health-status;textable;form=scalar\"",
+            "urn": "cap:in=\"media:monitoring-duration-ms;json;textable;record\";op=heartbeat_stress;out=\"media:health-status;textable\"",
             "title": "Heartbeat Stress",
             "command": "heartbeat_stress"
         ],
         [
-            "urn": "cap:in=\"media:order-batch-size;json;textable;form=map\";op=concurrent_stress;out=\"media:batch-result;textable;form=scalar\"",
+            "urn": "cap:in=\"media:order-batch-size;json;textable;record\";op=concurrent_stress;out=\"media:batch-result;textable\"",
             "title": "Concurrent Stress",
             "command": "concurrent_stress"
         ],
         [
-            "urn": "cap:in=\"media:void\";op=get_manifest;out=\"media:service-capabilities;json;textable;form=map\"",
+            "urn": "cap:in=\"media:void\";op=get_manifest;out=\"media:service-capabilities;json;textable;record\"",
             "title": "Get Manifest",
             "command": "get_manifest"
         ],
         [
-            "urn": "cap:in=\"media:uploaded-document\";op=process_large;out=\"media:document-info;json;textable;form=map\"",
+            "urn": "cap:in=\"media:uploaded-document\";op=process_large;out=\"media:document-info;json;textable;record\"",
             "title": "Process Large",
             "command": "process_large"
         ],
         [
-            "urn": "cap:in=\"media:uploaded-document\";op=hash_incoming;out=\"media:document-hash;textable;form=scalar\"",
+            "urn": "cap:in=\"media:uploaded-document\";op=hash_incoming;out=\"media:document-hash;textable\"",
             "title": "Hash Incoming",
             "command": "hash_incoming"
         ],
         [
-            "urn": "cap:in=\"media:package-data\";op=verify_binary;out=\"media:verification-status;textable;form=scalar\"",
+            "urn": "cap:in=\"media:package-data\";op=verify_binary;out=\"media:verification-status;textable\"",
             "title": "Verify Binary",
             "command": "verify_binary"
         ],
         [
-            "urn": "cap:in=\"media:invoice;file-path;textable;form=scalar\";op=read_file_info;out=\"media:invoice-metadata;json;textable;form=map\"",
+            "urn": "cap:in=\"media:invoice;file-path;textable\";op=read_file_info;out=\"media:invoice-metadata;json;textable;record\"",
             "title": "Read File Info",
             "command": "read_file_info",
             "args": [
                 [
-                    "media_urn": "media:invoice;file-path;textable;form=scalar",
+                    "media_urn": "media:invoice;file-path;textable",
                     "required": true,
                     "sources": [
                         ["stdin": "media:"],
@@ -114,7 +114,7 @@ func buildManifest() -> [String: Any] {
                 ] as [String: Any]
             ],
             "output": [
-                "media_urn": "media:invoice-metadata;json;textable;form=map",
+                "media_urn": "media:invoice-metadata;json;textable;record",
                 "output_description": "Invoice file size and SHA256 checksum"
             ] as [String: Any]
         ]
@@ -253,7 +253,7 @@ struct PeerEchoOp: Op, Sendable {
 
         // Call host's echo capability
         let call = try req.peer().call(capUrn: "cap:in=media:;out=media:")
-        let arg = call.arg(mediaUrn: "media:customer-message;textable;form=scalar")
+        let arg = call.arg(mediaUrn: "media:customer-message;textable")
         try arg.write(payload)
         try arg.close()
 
@@ -401,7 +401,7 @@ struct NestedCallOp: Op, Sendable {
         // Call host's double capability
         let inputData = try JSONSerialization.data(withJSONObject: ["value": inputValue])
         let call = try req.peer().call(capUrn: "cap:in=*;op=double;out=*")
-        let arg = call.arg(mediaUrn: "media:order-value;json;textable;form=map")
+        let arg = call.arg(mediaUrn: "media:order-value;json;textable;record")
         try arg.write(inputData)
         try arg.close()
 
@@ -562,21 +562,21 @@ let runtime = PluginRuntime(manifestJSON: manifestJSON)
 
 // Register all handlers as Op types
 runtime.register_op_type(capUrn: "cap:in=\"media:\";op=echo;out=\"media:\"", make: EchoOp.init)
-runtime.register_op_type(capUrn: "cap:in=\"media:order-value;json;textable;form=map\";op=double;out=\"media:loyalty-points;integer;textable;numeric;form=scalar\"", make: DoubleOp.init)
-runtime.register_op_type(capUrn: "cap:in=\"media:update-count;json;textable;form=map\";op=stream_chunks;out=\"media:order-updates;textable\"", make: StreamChunksOp.init)
+runtime.register_op_type(capUrn: "cap:in=\"media:order-value;json;textable;record\";op=double;out=\"media:loyalty-points;integer;textable;numeric\"", make: DoubleOp.init)
+runtime.register_op_type(capUrn: "cap:in=\"media:update-count;json;textable;record\";op=stream_chunks;out=\"media:order-updates;textable\"", make: StreamChunksOp.init)
 runtime.register_op_type(capUrn: "cap:in=\"media:product-image\";op=binary_echo;out=\"media:product-image\"", make: BinaryEchoOp.init)
-runtime.register_op_type(capUrn: "cap:in=\"media:payment-delay-ms;json;textable;form=map\";op=slow_response;out=\"media:payment-result;textable;form=scalar\"", make: SlowResponseOp.init)
-runtime.register_op_type(capUrn: "cap:in=\"media:report-size;json;textable;form=map\";op=generate_large;out=\"media:sales-report\"", make: GenerateLargeOp.init)
-runtime.register_op_type(capUrn: "cap:in=\"media:fulfillment-steps;json;textable;form=map\";op=with_status;out=\"media:fulfillment-status;textable;form=scalar\"", make: WithStatusOp.init)
-runtime.register_op_type(capUrn: "cap:in=\"media:payment-error;json;textable;form=map\";op=throw_error;out=\"media:void\"", make: ThrowErrorOp.init)
-runtime.register_op_type(capUrn: "cap:in=\"media:customer-message;textable;form=scalar\";op=peer_echo;out=\"media:customer-message;textable;form=scalar\"", make: PeerEchoOp.init)
-runtime.register_op_type(capUrn: "cap:in=\"media:order-value;json;textable;form=map\";op=nested_call;out=\"media:final-price;integer;textable;numeric;form=scalar\"", make: NestedCallOp.init)
-runtime.register_op_type(capUrn: "cap:in=\"media:monitoring-duration-ms;json;textable;form=map\";op=heartbeat_stress;out=\"media:health-status;textable;form=scalar\"", make: HeartbeatStressOp.init)
-runtime.register_op_type(capUrn: "cap:in=\"media:order-batch-size;json;textable;form=map\";op=concurrent_stress;out=\"media:batch-result;textable;form=scalar\"", make: ConcurrentStressOp.init)
-runtime.register_op_type(capUrn: "cap:in=\"media:void\";op=get_manifest;out=\"media:service-capabilities;json;textable;form=map\"", make: GetManifestOp.init)
-runtime.register_op_type(capUrn: "cap:in=\"media:uploaded-document\";op=process_large;out=\"media:document-info;json;textable;form=map\"", make: ProcessLargeOp.init)
-runtime.register_op_type(capUrn: "cap:in=\"media:uploaded-document\";op=hash_incoming;out=\"media:document-hash;textable;form=scalar\"", make: HashIncomingOp.init)
-runtime.register_op_type(capUrn: "cap:in=\"media:package-data\";op=verify_binary;out=\"media:verification-status;textable;form=scalar\"", make: VerifyBinaryOp.init)
-runtime.register_op_type(capUrn: "cap:in=\"media:invoice;file-path;textable;form=scalar\";op=read_file_info;out=\"media:invoice-metadata;json;textable;form=map\"", make: ReadFileInfoOp.init)
+runtime.register_op_type(capUrn: "cap:in=\"media:payment-delay-ms;json;textable;record\";op=slow_response;out=\"media:payment-result;textable\"", make: SlowResponseOp.init)
+runtime.register_op_type(capUrn: "cap:in=\"media:report-size;json;textable;record\";op=generate_large;out=\"media:sales-report\"", make: GenerateLargeOp.init)
+runtime.register_op_type(capUrn: "cap:in=\"media:fulfillment-steps;json;textable;record\";op=with_status;out=\"media:fulfillment-status;textable\"", make: WithStatusOp.init)
+runtime.register_op_type(capUrn: "cap:in=\"media:payment-error;json;textable;record\";op=throw_error;out=\"media:void\"", make: ThrowErrorOp.init)
+runtime.register_op_type(capUrn: "cap:in=\"media:customer-message;textable\";op=peer_echo;out=\"media:customer-message;textable\"", make: PeerEchoOp.init)
+runtime.register_op_type(capUrn: "cap:in=\"media:order-value;json;textable;record\";op=nested_call;out=\"media:final-price;integer;textable;numeric\"", make: NestedCallOp.init)
+runtime.register_op_type(capUrn: "cap:in=\"media:monitoring-duration-ms;json;textable;record\";op=heartbeat_stress;out=\"media:health-status;textable\"", make: HeartbeatStressOp.init)
+runtime.register_op_type(capUrn: "cap:in=\"media:order-batch-size;json;textable;record\";op=concurrent_stress;out=\"media:batch-result;textable\"", make: ConcurrentStressOp.init)
+runtime.register_op_type(capUrn: "cap:in=\"media:void\";op=get_manifest;out=\"media:service-capabilities;json;textable;record\"", make: GetManifestOp.init)
+runtime.register_op_type(capUrn: "cap:in=\"media:uploaded-document\";op=process_large;out=\"media:document-info;json;textable;record\"", make: ProcessLargeOp.init)
+runtime.register_op_type(capUrn: "cap:in=\"media:uploaded-document\";op=hash_incoming;out=\"media:document-hash;textable\"", make: HashIncomingOp.init)
+runtime.register_op_type(capUrn: "cap:in=\"media:package-data\";op=verify_binary;out=\"media:verification-status;textable\"", make: VerifyBinaryOp.init)
+runtime.register_op_type(capUrn: "cap:in=\"media:invoice;file-path;textable\";op=read_file_info;out=\"media:invoice-metadata;json;textable;record\"", make: ReadFileInfoOp.init)
 
 try! runtime.run()

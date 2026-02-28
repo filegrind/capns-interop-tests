@@ -42,7 +42,7 @@ def test_throw_error(router_binaries, relay_host_binaries, plugin_binaries, rout
         error_msg = "Test error message"
         input_json = json.dumps({"value": error_msg}).encode()
         req_id = make_req_id()
-        send_request(writer, req_id, TEST_CAPS["throw_error"], input_json, media_urn="media:payment-error;json;textable;form=map")
+        send_request(writer, req_id, TEST_CAPS["throw_error"], input_json, media_urn="media:payment-error;json;textable;record")
         _, frames = read_response(reader)
 
         err_frames = [f for f in frames if f.frame_type == FrameType.ERR]
@@ -116,7 +116,7 @@ def test_malformed_payload(router_binaries, relay_host_binaries, plugin_binaries
         reader, writer = topology.start()
         malformed_json = b"{invalid json"
         req_id = make_req_id()
-        send_request(writer, req_id, TEST_CAPS["double"], malformed_json, media_urn="media:order-value;json;textable;form=map")
+        send_request(writer, req_id, TEST_CAPS["double"], malformed_json, media_urn="media:order-value;json;textable;record")
         _, frames = read_response(reader)
 
         err_frames = [f for f in frames if f.frame_type == FrameType.ERR]

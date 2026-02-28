@@ -27,7 +27,7 @@ SUPPORTED_PLUGIN_LANGS = ["rust", "go", "python", "swift"]
 
 # E-commerce semantic cap URNs
 ECHO_CAP = 'cap:in=media:;out=media:'
-DOUBLE_CAP = 'cap:in="media:order-value;json;textable;form=map";op=double;out="media:loyalty-points;integer;textable;numeric;form=scalar"'
+DOUBLE_CAP = 'cap:in="media:order-value;json;textable;record";op=double;out="media:loyalty-points;integer;textable;numeric"'
 
 
 # ============================================================
@@ -62,7 +62,7 @@ def test_two_masters_distinct_capabilities(router_binaries, relay_host_binaries,
         # Request to master-b's plugin (go plugin has double)
         req_id2 = make_req_id()
         input_json2 = json.dumps({"value": 42}).encode()
-        send_request(writer, req_id2, DOUBLE_CAP, input_json2, media_urn="media:order-value;json;textable;form=map")
+        send_request(writer, req_id2, DOUBLE_CAP, input_json2, media_urn="media:order-value;json;textable;record")
         output2, frames2 = read_response(reader)
 
         # Check for ERR frames
@@ -194,7 +194,7 @@ def test_capability_segregation(router_binaries, relay_host_binaries, plugin_bin
         # Master 2: double capability
         req_id2 = make_req_id()
         input_json2 = json.dumps({"value": 10}).encode()
-        send_request(writer, req_id2, DOUBLE_CAP, input_json2, media_urn="media:order-value;json;textable;form=map")
+        send_request(writer, req_id2, DOUBLE_CAP, input_json2, media_urn="media:order-value;json;textable;record")
         output2, _ = read_response(reader)
 
         # Plugin can return integer directly (CBOR) or JSON bytes
@@ -306,7 +306,7 @@ def test_four_masters_mixed_capabilities(router_binaries, relay_host_binaries, p
             req_id = make_req_id()
             if isinstance(payload, dict):
                 input_json = json.dumps(payload).encode()
-                send_request(writer, req_id, cap_urn, input_json, media_urn="media:order-value;json;textable;form=map")
+                send_request(writer, req_id, cap_urn, input_json, media_urn="media:order-value;json;textable;record")
                 output, _ = read_response(reader)
 
                 # Plugin can return integer directly (CBOR) or JSON bytes

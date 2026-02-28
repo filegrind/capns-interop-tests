@@ -222,14 +222,14 @@ func buildManifest() *bifaci.CapManifest {
 		*cap.NewCap(
 			mustBuild(urn.NewCapUrnBuilder().
 				Tag("op", "double").
-				InSpec("media:order-value;json;textable;form=map").
-				OutSpec("media:loyalty-points;integer;textable;numeric;form=scalar")),
+				InSpec("media:order-value;json;textable;record").
+				OutSpec("media:loyalty-points;integer;textable;numeric")),
 			"Double", "double",
 		),
 		*cap.NewCap(
 			mustBuild(urn.NewCapUrnBuilder().
 				Tag("op", "stream_chunks").
-				InSpec("media:update-count;json;textable;form=map").
+				InSpec("media:update-count;json;textable;record").
 				OutSpec("media:order-updates;textable")),
 			"Stream Chunks", "stream_chunks",
 		),
@@ -243,85 +243,85 @@ func buildManifest() *bifaci.CapManifest {
 		*cap.NewCap(
 			mustBuild(urn.NewCapUrnBuilder().
 				Tag("op", "slow_response").
-				InSpec("media:payment-delay-ms;json;textable;form=map").
-				OutSpec("media:payment-result;textable;form=scalar")),
+				InSpec("media:payment-delay-ms;json;textable;record").
+				OutSpec("media:payment-result;textable")),
 			"Slow Response", "slow_response",
 		),
 		*cap.NewCap(
 			mustBuild(urn.NewCapUrnBuilder().
 				Tag("op", "generate_large").
-				InSpec("media:report-size;json;textable;form=map").
+				InSpec("media:report-size;json;textable;record").
 				OutSpec("media:sales-report")),
 			"Generate Large", "generate_large",
 		),
 		*cap.NewCap(
 			mustBuild(urn.NewCapUrnBuilder().
 				Tag("op", "with_status").
-				InSpec("media:fulfillment-steps;json;textable;form=map").
-				OutSpec("media:fulfillment-status;textable;form=scalar")),
+				InSpec("media:fulfillment-steps;json;textable;record").
+				OutSpec("media:fulfillment-status;textable")),
 			"With Status", "with_status",
 		),
 		*cap.NewCap(
 			mustBuild(urn.NewCapUrnBuilder().
 				Tag("op", "throw_error").
-				InSpec("media:payment-error;json;textable;form=map").
+				InSpec("media:payment-error;json;textable;record").
 				OutSpec("media:void")),
 			"Throw Error", "throw_error",
 		),
 		*cap.NewCap(
 			mustBuild(urn.NewCapUrnBuilder().
 				Tag("op", "peer_echo").
-				InSpec("media:customer-message;textable;form=scalar").
-				OutSpec("media:customer-message;textable;form=scalar")),
+				InSpec("media:customer-message;textable").
+				OutSpec("media:customer-message;textable")),
 			"Peer Echo", "peer_echo",
 		),
 		*cap.NewCap(
 			mustBuild(urn.NewCapUrnBuilder().
 				Tag("op", "nested_call").
-				InSpec("media:order-value;json;textable;form=map").
-				OutSpec("media:final-price;integer;textable;numeric;form=scalar")),
+				InSpec("media:order-value;json;textable;record").
+				OutSpec("media:final-price;integer;textable;numeric")),
 			"Nested Call", "nested_call",
 		),
 		*cap.NewCap(
 			mustBuild(urn.NewCapUrnBuilder().
 				Tag("op", "heartbeat_stress").
-				InSpec("media:monitoring-duration-ms;json;textable;form=map").
-				OutSpec("media:health-status;textable;form=scalar")),
+				InSpec("media:monitoring-duration-ms;json;textable;record").
+				OutSpec("media:health-status;textable")),
 			"Heartbeat Stress", "heartbeat_stress",
 		),
 		*cap.NewCap(
 			mustBuild(urn.NewCapUrnBuilder().
 				Tag("op", "concurrent_stress").
-				InSpec("media:order-batch-size;json;textable;form=map").
-				OutSpec("media:batch-result;textable;form=scalar")),
+				InSpec("media:order-batch-size;json;textable;record").
+				OutSpec("media:batch-result;textable")),
 			"Concurrent Stress", "concurrent_stress",
 		),
 		*cap.NewCap(
 			mustBuild(urn.NewCapUrnBuilder().
 				Tag("op", "get_manifest").
 				InSpec("media:void").
-				OutSpec("media:service-capabilities;json;textable;form=map")),
+				OutSpec("media:service-capabilities;json;textable;record")),
 			"Get Manifest", "get_manifest",
 		),
 		*cap.NewCap(
 			mustBuild(urn.NewCapUrnBuilder().
 				Tag("op", "process_large").
 				InSpec("media:uploaded-document").
-				OutSpec("media:document-info;json;textable;form=map")),
+				OutSpec("media:document-info;json;textable;record")),
 			"Process Large", "process_large",
 		),
 		*cap.NewCap(
 			mustBuild(urn.NewCapUrnBuilder().
 				Tag("op", "hash_incoming").
 				InSpec("media:uploaded-document").
-				OutSpec("media:document-hash;textable;form=scalar")),
+				OutSpec("media:document-hash;textable")),
 			"Hash Incoming", "hash_incoming",
 		),
 		*cap.NewCap(
 			mustBuild(urn.NewCapUrnBuilder().
 				Tag("op", "verify_binary").
 				InSpec("media:package-data").
-				OutSpec("media:verification-status;textable;form=scalar")),
+				OutSpec("media:verification-status;textable")),
 			"Verify Binary", "verify_binary",
 		),
 		func() cap.Cap {
@@ -332,13 +332,13 @@ func buildManifest() *bifaci.CapManifest {
 			c := cap.NewCap(
 				mustBuild(urn.NewCapUrnBuilder().
 					Tag("op", "read_file_info").
-					InSpec("media:invoice;file-path;textable;form=scalar").
-					OutSpec("media:invoice-metadata;json;textable;form=map")),
+					InSpec("media:invoice;file-path;textable").
+					OutSpec("media:invoice-metadata;json;textable;record")),
 				"Read File Info", "read_file_info",
 			)
 			c.Args = []cap.CapArg{
 				{
-					MediaUrn: "media:invoice;file-path;textable;form=scalar",
+					MediaUrn: "media:invoice;file-path;textable",
 					Required: true,
 					Sources: []cap.ArgSource{
 						{Stdin: &stdin},
@@ -348,7 +348,7 @@ func buildManifest() *bifaci.CapManifest {
 				},
 			}
 			c.Output = &cap.CapOutput{
-				MediaUrn:          "media:invoice-metadata;json;textable;form=map",
+				MediaUrn:          "media:invoice-metadata;json;textable;record",
 				OutputDescription: "Invoice file size and SHA256 checksum",
 			}
 			return *c
@@ -400,7 +400,7 @@ func (op *PeerEchoOp) Perform(req *bifaci.Request) error {
 		return err
 	}
 	args := []cap.CapArgumentValue{
-		cap.NewCapArgumentValue("media:customer-message;textable;form=scalar", payloadBytes),
+		cap.NewCapArgumentValue("media:customer-message;textable", payloadBytes),
 	}
 	peerFrames, err := req.Peer().Invoke("cap:in=media:;out=media:", args)
 	if err != nil {
@@ -543,12 +543,12 @@ func (op *NestedCallOp) Perform(req *bifaci.Request) error {
 		return err
 	}
 	args := []cap.CapArgumentValue{
-		cap.NewCapArgumentValue("media:order-value;json;textable;form=map", input),
+		cap.NewCapArgumentValue("media:order-value;json;textable;record", input),
 	}
 
 	fmt.Fprintln(os.Stderr, "[nested_call] Calling peer double")
 	peerFrames, err := req.Peer().Invoke(
-		`cap:in="media:order-value;json;textable;form=map";op=double;out="media:loyalty-points;integer;textable;numeric;form=scalar"`,
+		`cap:in="media:order-value;json;textable;record";op=double;out="media:loyalty-points;integer;textable;numeric"`,
 		args,
 	)
 	if err != nil {
@@ -719,22 +719,22 @@ func main() {
 
 	// Register all handlers as CapOp types (mirrors Rust register_op_type::<T>())
 	runtime.RegisterOp(`cap:in="media:";op=echo;out="media:"`, &EchoOp{})
-	runtime.RegisterOp(`cap:in="media:order-value;json;textable;form=map";op=double;out="media:loyalty-points;integer;textable;numeric;form=scalar"`, &DoubleOp{})
-	runtime.RegisterOp(`cap:in="media:update-count;json;textable;form=map";op=stream_chunks;out="media:order-updates;textable"`, &StreamChunksOp{})
+	runtime.RegisterOp(`cap:in="media:order-value;json;textable;record";op=double;out="media:loyalty-points;integer;textable;numeric"`, &DoubleOp{})
+	runtime.RegisterOp(`cap:in="media:update-count;json;textable;record";op=stream_chunks;out="media:order-updates;textable"`, &StreamChunksOp{})
 	runtime.RegisterOp(`cap:in="media:product-image";op=binary_echo;out="media:product-image"`, &BinaryEchoOp{})
-	runtime.RegisterOp(`cap:in="media:payment-delay-ms;json;textable;form=map";op=slow_response;out="media:payment-result;textable;form=scalar"`, &SlowResponseOp{})
-	runtime.RegisterOp(`cap:in="media:report-size;json;textable;form=map";op=generate_large;out="media:sales-report"`, &GenerateLargeOp{})
-	runtime.RegisterOp(`cap:in="media:fulfillment-steps;json;textable;form=map";op=with_status;out="media:fulfillment-status;textable;form=scalar"`, &WithStatusOp{})
-	runtime.RegisterOp(`cap:in="media:payment-error;json;textable;form=map";op=throw_error;out=media:void`, &ThrowErrorOp{})
-	runtime.RegisterOp(`cap:in="media:customer-message;textable;form=scalar";op=peer_echo;out="media:customer-message;textable;form=scalar"`, &PeerEchoOp{})
-	runtime.RegisterOp(`cap:in="media:order-value;json;textable;form=map";op=nested_call;out="media:final-price;integer;textable;numeric;form=scalar"`, &NestedCallOp{})
-	runtime.RegisterOp(`cap:in="media:monitoring-duration-ms;json;textable;form=map";op=heartbeat_stress;out="media:health-status;textable;form=scalar"`, &HeartbeatStressOp{})
-	runtime.RegisterOp(`cap:in="media:order-batch-size;json;textable;form=map";op=concurrent_stress;out="media:batch-result;textable;form=scalar"`, &ConcurrentStressOp{})
-	runtime.RegisterOp(`cap:in=media:void;op=get_manifest;out="media:service-capabilities;json;textable;form=map"`, &GetManifestOp{})
-	runtime.RegisterOp(`cap:in="media:uploaded-document";op=process_large;out="media:document-info;json;textable;form=map"`, &ProcessLargeOp{})
-	runtime.RegisterOp(`cap:in="media:uploaded-document";op=hash_incoming;out="media:document-hash;textable;form=scalar"`, &HashIncomingOp{})
-	runtime.RegisterOp(`cap:in="media:package-data";op=verify_binary;out="media:verification-status;textable;form=scalar"`, &VerifyBinaryOp{})
-	runtime.RegisterOp(`cap:in="media:invoice;file-path;textable;form=scalar";op=read_file_info;out="media:invoice-metadata;json;textable;form=map"`, &ReadFileInfoOp{})
+	runtime.RegisterOp(`cap:in="media:payment-delay-ms;json;textable;record";op=slow_response;out="media:payment-result;textable"`, &SlowResponseOp{})
+	runtime.RegisterOp(`cap:in="media:report-size;json;textable;record";op=generate_large;out="media:sales-report"`, &GenerateLargeOp{})
+	runtime.RegisterOp(`cap:in="media:fulfillment-steps;json;textable;record";op=with_status;out="media:fulfillment-status;textable"`, &WithStatusOp{})
+	runtime.RegisterOp(`cap:in="media:payment-error;json;textable;record";op=throw_error;out=media:void`, &ThrowErrorOp{})
+	runtime.RegisterOp(`cap:in="media:customer-message;textable";op=peer_echo;out="media:customer-message;textable"`, &PeerEchoOp{})
+	runtime.RegisterOp(`cap:in="media:order-value;json;textable;record";op=nested_call;out="media:final-price;integer;textable;numeric"`, &NestedCallOp{})
+	runtime.RegisterOp(`cap:in="media:monitoring-duration-ms;json;textable;record";op=heartbeat_stress;out="media:health-status;textable"`, &HeartbeatStressOp{})
+	runtime.RegisterOp(`cap:in="media:order-batch-size;json;textable;record";op=concurrent_stress;out="media:batch-result;textable"`, &ConcurrentStressOp{})
+	runtime.RegisterOp(`cap:in=media:void;op=get_manifest;out="media:service-capabilities;json;textable;record"`, &GetManifestOp{})
+	runtime.RegisterOp(`cap:in="media:uploaded-document";op=process_large;out="media:document-info;json;textable;record"`, &ProcessLargeOp{})
+	runtime.RegisterOp(`cap:in="media:uploaded-document";op=hash_incoming;out="media:document-hash;textable"`, &HashIncomingOp{})
+	runtime.RegisterOp(`cap:in="media:package-data";op=verify_binary;out="media:verification-status;textable"`, &VerifyBinaryOp{})
+	runtime.RegisterOp(`cap:in="media:invoice;file-path;textable";op=read_file_info;out="media:invoice-metadata;json;textable;record"`, &ReadFileInfoOp{})
 
 	if err := runtime.Run(); err != nil {
 		panic(fmt.Sprintf("plugin runtime error: %v", err))

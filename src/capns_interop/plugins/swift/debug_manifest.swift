@@ -3,12 +3,12 @@ import Foundation
 func buildManifest() -> [String: Any] {
     let caps: [[String: Any]] = [
         [
-            "urn": "cap:in=\"media:file-path;textable;form=scalar\";op=read_file_info;out=\"media:json\"",
+            "urn": "cap:in=\"media:file-path;textable\";op=read_file_info;out=\"media:json\"",
             "title": "Read File Info",
             "command": "read_file_info",
             "args": [
                 [
-                    "media_urn": "media:file-path;textable;form=scalar",
+                    "media_urn": "media:file-path;textable",
                     "required": true,
                     "sources": [
                         ["stdin": "media:"],

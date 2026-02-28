@@ -30,7 +30,7 @@ SAMPLE_REGISTRY_V3 = {
             "author": "Test Author",
             "category": "utility",
             "caps": [
-                'cap:in="media:string;textable;form=scalar";op=test;out="media:string;textable;form=scalar"'
+                'cap:in="media:string;textable";op=test;out="media:string;textable"'
             ],
             "versions": {
                 "1.0.0": {
@@ -59,7 +59,7 @@ SAMPLE_REGISTRY_V3 = {
             "author": "Test Author",
             "category": "media",
             "caps": [
-                'cap:in="media:";op=convert;out="media:string;textable;form=scalar"'
+                'cap:in="media:";op=convert;out="media:string;textable"'
             ],
             "versions": {
                 "2.0.0": {

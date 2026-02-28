@@ -141,7 +141,7 @@ def test_large_payload_throughput(router_binaries, relay_host_binaries, plugin_b
 
             req_id = make_req_id()
             start = time.perf_counter()
-            send_request(writer, req_id, TEST_CAPS["generate_large"], input_json, media_urn="media:report-size;json;textable;form=map")
+            send_request(writer, req_id, TEST_CAPS["generate_large"], input_json, media_urn="media:report-size;json;textable;record")
 
             # Count bytes without accumulating (avoids Python memory pressure for large payloads)
             import cbor2
@@ -201,7 +201,7 @@ def test_concurrent_stress(router_binaries, relay_host_binaries, plugin_binaries
         work_units = 100
         input_json = json.dumps({"value": work_units}).encode()
         req_id = make_req_id()
-        send_request(writer, req_id, TEST_CAPS["concurrent_stress"], input_json, media_urn="media:order-batch-size;json;textable;form=map")
+        send_request(writer, req_id, TEST_CAPS["concurrent_stress"], input_json, media_urn="media:order-batch-size;json;textable;record")
         output, frames = read_response(reader)
 
         if isinstance(output, bytes):

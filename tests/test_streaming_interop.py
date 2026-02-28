@@ -41,7 +41,7 @@ def test_stream_chunks(router_binaries, relay_host_binaries, plugin_binaries, ro
         chunk_count = 5
         input_json = json.dumps({"value": chunk_count}).encode()
         req_id = make_req_id()
-        send_request(writer, req_id, TEST_CAPS["stream_chunks"], input_json, media_urn="media:update-count;json;textable;form=map")
+        send_request(writer, req_id, TEST_CAPS["stream_chunks"], input_json, media_urn="media:update-count;json;textable;record")
 
         # Collect all response frames
         chunks_data = []
@@ -77,7 +77,7 @@ def test_large_payload(router_binaries, relay_host_binaries, plugin_binaries, ro
         size = 10 * 1024 * 1024  # 10 MB
         input_json = json.dumps({"value": size}).encode()
         req_id = make_req_id()
-        send_request(writer, req_id, TEST_CAPS["generate_large"], input_json, media_urn="media:report-size;json;textable;form=map")
+        send_request(writer, req_id, TEST_CAPS["generate_large"], input_json, media_urn="media:report-size;json;textable;record")
 
         # Collect all chunk data
         # Each CHUNK payload MUST be a complete, independently decodable CBOR value
@@ -153,7 +153,7 @@ def test_stream_ordering(router_binaries, relay_host_binaries, plugin_binaries, 
         chunk_count = 20
         input_json = json.dumps({"value": chunk_count}).encode()
         req_id = make_req_id()
-        send_request(writer, req_id, TEST_CAPS["stream_chunks"], input_json, media_urn="media:update-count;json;textable;form=map")
+        send_request(writer, req_id, TEST_CAPS["stream_chunks"], input_json, media_urn="media:update-count;json;textable;record")
 
         # Collect chunk data
         chunk_payloads = []

@@ -9,7 +9,7 @@ func buildManifest() -> [String: Any] {
             "command": "read_file_info",
             "args": [
                 [
-                    "media_urn": "media:file-path;textable;form=scalar",
+                    "media_urn": "media:file-path;textable",
                     "required": true,
                     "sources": [
                         ["stdin": "media:"],

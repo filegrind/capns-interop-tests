@@ -66,8 +66,8 @@ fn build_manifest() -> CapManifest {
         Cap::new(
             CapUrnBuilder::new()
                 .tag("op", "double")
-                .in_spec("media:order-value;json;textable;form=map")
-                .out_spec("media:loyalty-points;integer;textable;numeric;form=scalar")
+                .in_spec("media:order-value;json;textable;record")
+                .out_spec("media:loyalty-points;integer;textable;numeric")
                 .build()
                 .unwrap(),
             "Double".to_string(),
@@ -76,7 +76,7 @@ fn build_manifest() -> CapManifest {
         Cap::new(
             CapUrnBuilder::new()
                 .tag("op", "stream_chunks")
-                .in_spec("media:update-count;json;textable;form=map")
+                .in_spec("media:update-count;json;textable;record")
                 .out_spec("media:order-updates;textable")
                 .build()
                 .unwrap(),
@@ -96,8 +96,8 @@ fn build_manifest() -> CapManifest {
         Cap::new(
             CapUrnBuilder::new()
                 .tag("op", "slow_response")
-                .in_spec("media:payment-delay-ms;json;textable;form=map")
-                .out_spec("media:payment-result;textable;form=scalar")
+                .in_spec("media:payment-delay-ms;json;textable;record")
+                .out_spec("media:payment-result;textable")
                 .build()
                 .unwrap(),
             "Slow Response".to_string(),
@@ -106,7 +106,7 @@ fn build_manifest() -> CapManifest {
         Cap::new(
             CapUrnBuilder::new()
                 .tag("op", "generate_large")
-                .in_spec("media:report-size;json;textable;form=map")
+                .in_spec("media:report-size;json;textable;record")
                 .out_spec("media:sales-report")
                 .build()
                 .unwrap(),
@@ -116,8 +116,8 @@ fn build_manifest() -> CapManifest {
         Cap::new(
             CapUrnBuilder::new()
                 .tag("op", "with_status")
-                .in_spec("media:fulfillment-steps;json;textable;form=map")
-                .out_spec("media:fulfillment-status;textable;form=scalar")
+                .in_spec("media:fulfillment-steps;json;textable;record")
+                .out_spec("media:fulfillment-status;textable")
                 .build()
                 .unwrap(),
             "With Status".to_string(),
@@ -126,7 +126,7 @@ fn build_manifest() -> CapManifest {
         Cap::new(
             CapUrnBuilder::new()
                 .tag("op", "throw_error")
-                .in_spec("media:payment-error;json;textable;form=map")
+                .in_spec("media:payment-error;json;textable;record")
                 .out_spec("media:void")
                 .build()
                 .unwrap(),
@@ -136,8 +136,8 @@ fn build_manifest() -> CapManifest {
         Cap::new(
             CapUrnBuilder::new()
                 .tag("op", "peer_echo")
-                .in_spec("media:customer-message;textable;form=scalar")
-                .out_spec("media:customer-message;textable;form=scalar")
+                .in_spec("media:customer-message;textable")
+                .out_spec("media:customer-message;textable")
                 .build()
                 .unwrap(),
             "Peer Echo".to_string(),
@@ -146,8 +146,8 @@ fn build_manifest() -> CapManifest {
         Cap::new(
             CapUrnBuilder::new()
                 .tag("op", "nested_call")
-                .in_spec("media:order-value;json;textable;form=map")
-                .out_spec("media:final-price;integer;textable;numeric;form=scalar")
+                .in_spec("media:order-value;json;textable;record")
+                .out_spec("media:final-price;integer;textable;numeric")
                 .build()
                 .unwrap(),
             "Nested Call".to_string(),
@@ -156,8 +156,8 @@ fn build_manifest() -> CapManifest {
         Cap::new(
             CapUrnBuilder::new()
                 .tag("op", "heartbeat_stress")
-                .in_spec("media:monitoring-duration-ms;json;textable;form=map")
-                .out_spec("media:health-status;textable;form=scalar")
+                .in_spec("media:monitoring-duration-ms;json;textable;record")
+                .out_spec("media:health-status;textable")
                 .build()
                 .unwrap(),
             "Heartbeat Stress".to_string(),
@@ -166,8 +166,8 @@ fn build_manifest() -> CapManifest {
         Cap::new(
             CapUrnBuilder::new()
                 .tag("op", "concurrent_stress")
-                .in_spec("media:order-batch-size;json;textable;form=map")
-                .out_spec("media:batch-result;textable;form=scalar")
+                .in_spec("media:order-batch-size;json;textable;record")
+                .out_spec("media:batch-result;textable")
                 .build()
                 .unwrap(),
             "Concurrent Stress".to_string(),
@@ -177,7 +177,7 @@ fn build_manifest() -> CapManifest {
             CapUrnBuilder::new()
                 .tag("op", "get_manifest")
                 .in_spec("media:void")
-                .out_spec("media:service-capabilities;json;textable;form=map")
+                .out_spec("media:service-capabilities;json;textable;record")
                 .build()
                 .unwrap(),
             "Get Manifest".to_string(),
@@ -187,7 +187,7 @@ fn build_manifest() -> CapManifest {
             CapUrnBuilder::new()
                 .tag("op", "process_large")
                 .in_spec("media:uploaded-document")
-                .out_spec("media:document-info;json;textable;form=map")
+                .out_spec("media:document-info;json;textable;record")
                 .build()
                 .unwrap(),
             "Process Large".to_string(),
@@ -197,7 +197,7 @@ fn build_manifest() -> CapManifest {
             CapUrnBuilder::new()
                 .tag("op", "hash_incoming")
                 .in_spec("media:uploaded-document")
-                .out_spec("media:document-hash;textable;form=scalar")
+                .out_spec("media:document-hash;textable")
                 .build()
                 .unwrap(),
             "Hash Incoming".to_string(),
@@ -207,7 +207,7 @@ fn build_manifest() -> CapManifest {
             CapUrnBuilder::new()
                 .tag("op", "verify_binary")
                 .in_spec("media:package-data")
-                .out_spec("media:verification-status;textable;form=scalar")
+                .out_spec("media:verification-status;textable")
                 .build()
                 .unwrap(),
             "Verify Binary".to_string(),
@@ -217,15 +217,15 @@ fn build_manifest() -> CapManifest {
             let mut cap = Cap::new(
                 CapUrnBuilder::new()
                     .tag("op", "read_file_info")
-                    .in_spec("media:invoice;file-path;textable;form=scalar")
-                    .out_spec("media:invoice-metadata;json;textable;form=map")
+                    .in_spec("media:invoice;file-path;textable")
+                    .out_spec("media:invoice-metadata;json;textable;record")
                     .build()
                     .unwrap(),
                 "Read File Info".to_string(),
                 "read_file_info".to_string(),
             );
             cap.args = vec![CapArg {
-                media_urn: "media:invoice;file-path;textable;form=scalar".to_string(),
+                media_urn: "media:invoice;file-path;textable".to_string(),
                 required: true,
                 sources: vec![
                     ArgSource::Stdin {
@@ -238,7 +238,7 @@ fn build_manifest() -> CapManifest {
                 metadata: None,
             }];
             cap.output = Some(CapOutput {
-                media_urn: "media:invoice-metadata;json;textable;form=map".to_string(),
+                media_urn: "media:invoice-metadata;json;textable;record".to_string(),
                 output_description: "Invoice file size and SHA256 checksum".to_string(),
                 metadata: None,
             });
@@ -306,7 +306,7 @@ impl Op<()> for PeerEchoOp {
 
         let response = req.peer().call_with_bytes(
             "cap:in=media:;out=media:",
-            &[("media:customer-message;textable;form=scalar", &payload)],
+            &[("media:customer-message;textable", &payload)],
         ).map_err(|e| {
             eprintln!("[peer_echo] Peer call failed: {}", e);
             OpError::ExecutionFailed(e.to_string())
@@ -452,8 +452,8 @@ impl Op<()> for NestedCallOp {
 
         eprintln!("[nested_call] Calling peer double");
         let response = req.peer().call_with_bytes(
-            r#"cap:in="media:order-value;json;textable;form=map";op=double;out="media:loyalty-points;integer;textable;numeric;form=scalar""#,
-            &[("media:order-value;json;textable;form=map", &double_arg)],
+            r#"cap:in="media:order-value;json;textable;record";op=double;out="media:loyalty-points;integer;textable;numeric""#,
+            &[("media:order-value;json;textable;record", &double_arg)],
         ).map_err(|e| OpError::ExecutionFailed(e.to_string()))?;
 
         let cbor_value = response.collect_value()
@@ -631,26 +631,26 @@ fn main() -> Result<(), RuntimeError> {
 
     // Register all handlers as Op types
     runtime.register_op_type::<EchoOp>(r#"cap:in="media:";op=echo;out="media:""#);
-    runtime.register_op_type::<DoubleOp>(r#"cap:in="media:order-value;json;textable;form=map";op=double;out="media:loyalty-points;integer;textable;numeric;form=scalar""#);
-    runtime.register_op_type::<StreamChunksOp>(r#"cap:in="media:update-count;json;textable;form=map";op=stream_chunks;out="media:order-updates;textable""#);
+    runtime.register_op_type::<DoubleOp>(r#"cap:in="media:order-value;json;textable;record";op=double;out="media:loyalty-points;integer;textable;numeric""#);
+    runtime.register_op_type::<StreamChunksOp>(r#"cap:in="media:update-count;json;textable;record";op=stream_chunks;out="media:order-updates;textable""#);
     runtime.register_op_type::<BinaryEchoOp>(r#"cap:in="media:product-image";op=binary_echo;out="media:product-image""#);
-    runtime.register_op_type::<SlowResponseOp>(r#"cap:in="media:payment-delay-ms;json;textable;form=map";op=slow_response;out="media:payment-result;textable;form=scalar""#);
-    runtime.register_op_type::<GenerateLargeOp>(r#"cap:in="media:report-size;json;textable;form=map";op=generate_large;out="media:sales-report""#);
-    runtime.register_op_type::<WithStatusOp>(r#"cap:in="media:fulfillment-steps;json;textable;form=map";op=with_status;out="media:fulfillment-status;textable;form=scalar""#);
-    runtime.register_op_type::<ThrowErrorOp>(r#"cap:in="media:payment-error;json;textable;form=map";op=throw_error;out=media:void"#);
-    runtime.register_op_type::<PeerEchoOp>(r#"cap:in="media:customer-message;textable;form=scalar";op=peer_echo;out="media:customer-message;textable;form=scalar""#);
-    runtime.register_op_type::<NestedCallOp>(r#"cap:in="media:order-value;json;textable;form=map";op=nested_call;out="media:final-price;integer;textable;numeric;form=scalar""#);
+    runtime.register_op_type::<SlowResponseOp>(r#"cap:in="media:payment-delay-ms;json;textable;record";op=slow_response;out="media:payment-result;textable""#);
+    runtime.register_op_type::<GenerateLargeOp>(r#"cap:in="media:report-size;json;textable;record";op=generate_large;out="media:sales-report""#);
+    runtime.register_op_type::<WithStatusOp>(r#"cap:in="media:fulfillment-steps;json;textable;record";op=with_status;out="media:fulfillment-status;textable""#);
+    runtime.register_op_type::<ThrowErrorOp>(r#"cap:in="media:payment-error;json;textable;record";op=throw_error;out=media:void"#);
+    runtime.register_op_type::<PeerEchoOp>(r#"cap:in="media:customer-message;textable";op=peer_echo;out="media:customer-message;textable""#);
+    runtime.register_op_type::<NestedCallOp>(r#"cap:in="media:order-value;json;textable;record";op=nested_call;out="media:final-price;integer;textable;numeric""#);
     runtime.register_op_type::<HeartbeatStressOp>(
-        r#"cap:in="media:monitoring-duration-ms;json;textable;form=map";op=heartbeat_stress;out="media:health-status;textable;form=scalar""#,
+        r#"cap:in="media:monitoring-duration-ms;json;textable;record";op=heartbeat_stress;out="media:health-status;textable""#,
     );
     runtime.register_op_type::<ConcurrentStressOp>(
-        r#"cap:in="media:order-batch-size;json;textable;form=map";op=concurrent_stress;out="media:batch-result;textable;form=scalar""#,
+        r#"cap:in="media:order-batch-size;json;textable;record";op=concurrent_stress;out="media:batch-result;textable""#,
     );
-    runtime.register_op_type::<GetManifestOp>(r#"cap:in=media:void;op=get_manifest;out="media:service-capabilities;json;textable;form=map""#);
-    runtime.register_op_type::<ProcessLargeOp>(r#"cap:in="media:uploaded-document";op=process_large;out="media:document-info;json;textable;form=map""#);
-    runtime.register_op_type::<HashIncomingOp>(r#"cap:in="media:uploaded-document";op=hash_incoming;out="media:document-hash;textable;form=scalar""#);
-    runtime.register_op_type::<VerifyBinaryOp>(r#"cap:in="media:package-data";op=verify_binary;out="media:verification-status;textable;form=scalar""#);
-    runtime.register_op_type::<ReadFileInfoOp>(r#"cap:in="media:invoice;file-path;textable;form=scalar";op=read_file_info;out="media:invoice-metadata;json;textable;form=map""#);
+    runtime.register_op_type::<GetManifestOp>(r#"cap:in=media:void;op=get_manifest;out="media:service-capabilities;json;textable;record""#);
+    runtime.register_op_type::<ProcessLargeOp>(r#"cap:in="media:uploaded-document";op=process_large;out="media:document-info;json;textable;record""#);
+    runtime.register_op_type::<HashIncomingOp>(r#"cap:in="media:uploaded-document";op=hash_incoming;out="media:document-hash;textable""#);
+    runtime.register_op_type::<VerifyBinaryOp>(r#"cap:in="media:package-data";op=verify_binary;out="media:verification-status;textable""#);
+    runtime.register_op_type::<ReadFileInfoOp>(r#"cap:in="media:invoice;file-path;textable";op=read_file_info;out="media:invoice-metadata;json;textable;record""#);
 
     eprintln!("[PLUGIN MAIN] Calling runtime.run()");
     let result = runtime.run();
