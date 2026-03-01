@@ -10,10 +10,10 @@ import (
 
 	cborlib "github.com/fxamacker/cbor/v2"
 
-	"github.com/filegrind/capns-go/bifaci"
-	"github.com/filegrind/capns-go/cap"
-	"github.com/filegrind/capns-go/standard"
-	"github.com/filegrind/capns-go/urn"
+	"github.com/machinefabric/capns-go/bifaci"
+	"github.com/machinefabric/capns-go/cap"
+	"github.com/machinefabric/capns-go/standard"
+	"github.com/machinefabric/capns-go/urn"
 )
 
 // =============================================================================

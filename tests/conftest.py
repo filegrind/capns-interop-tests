@@ -212,7 +212,7 @@ def plugin_binaries(project_root, request):
     if not capns_src.exists():
         raise RuntimeError(
             f"capns library dependency not found at: {capns_src}\n"
-            f"Expected structure: filegrind/capns/src and filegrind/capns-interop-tests/"
+            f"Expected structure: machinefabric/capns/src and machinefabric/capns-interop-tests/"
         )
 
     binaries = {
@@ -357,7 +357,7 @@ def relay_host_binaries(project_root, request):
     if not capns_src.exists():
         raise RuntimeError(
             f"capns library dependency not found at: {capns_src}\n"
-            f"Expected structure: filegrind/capns/src and filegrind/capns-interop-tests/"
+            f"Expected structure: machinefabric/capns/src and machinefabric/capns-interop-tests/"
         )
 
     binaries = {
@@ -448,7 +448,7 @@ def router_binaries(project_root, request):
     if not capns_src.exists():
         raise RuntimeError(
             f"capns library dependency not found at: {capns_src}\n"
-            f"Expected structure: filegrind/capns/src and filegrind/capns-interop-tests/"
+            f"Expected structure: machinefabric/capns/src and machinefabric/capns-interop-tests/"
         )
 
     binaries = {

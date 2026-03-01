@@ -60,19 +60,19 @@ def add_module_paths():
         if current == current.parent:  # Reached filesystem root
             break
 
-    # Last resort: assume we're in filegrind project
+    # Last resort: assume we're in machinefabric project
     if "capns" not in paths_added:
-        capns_path = Path.home() / "ws" / "prj" / "filegrind" / "capns-py" / "src"
+        capns_path = Path.home() / "ws" / "prj" / "machinefabric" / "capns-py" / "src"
         if capns_path.exists():
             sys.path.insert(0, str(capns_path))
 
     if "tagged_urn" not in paths_added:
-        tagged_urn_path = Path.home() / "ws" / "prj" / "filegrind" / "tagged-urn-py" / "src"
+        tagged_urn_path = Path.home() / "ws" / "prj" / "machinefabric" / "tagged-urn-py" / "src"
         if tagged_urn_path.exists():
             sys.path.insert(0, str(tagged_urn_path))
 
     if "ops" not in paths_added:
-        ops_path = Path.home() / "ws" / "prj" / "filegrind" / "ops-py" / "src"
+        ops_path = Path.home() / "ws" / "prj" / "machinefabric" / "ops-py" / "src"
         if ops_path.exists():
             sys.path.insert(0, str(ops_path))
 

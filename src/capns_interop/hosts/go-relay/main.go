@@ -29,7 +29,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/filegrind/capns-go/bifaci"
+	"github.com/machinefabric/capns-go/bifaci"
 )
 
 type pluginList []string
