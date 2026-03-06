@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "capdag-interop-tests"
-version = "0.91.31241"
+version = "0.92.31275"
 description = "Interoperability testing framework for capdag implementations"
 requires-python = ">=3.10"
 dependencies = [

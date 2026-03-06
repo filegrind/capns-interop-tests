@@ -283,6 +283,11 @@ def plugin_binaries(project_root, request):
             print(f"[FIXTURE] {lang} plugin is up-to-date, skipping build", file=sys.stderr)
             sys.stderr.flush()
 
+    # Only return binaries for allowed languages
+    langs_option = request.config.getoption("--langs")
+    if langs_option:
+        allowed_langs = set(lang.strip() for lang in langs_option.split(","))
+        return {lang: path for lang, path in binaries.items() if lang in allowed_langs}
     return binaries
 
 
@@ -428,6 +433,11 @@ def relay_host_binaries(project_root, request):
             print(f"[FIXTURE] {lang} relay host is up-to-date, skipping build", file=sys.stderr)
             sys.stderr.flush()
 
+    # Only return binaries for allowed languages
+    langs_option = request.config.getoption("--langs")
+    if langs_option:
+        allowed_langs = set(lang.strip() for lang in langs_option.split(","))
+        return {lang: path for lang, path in binaries.items() if lang in allowed_langs}
     return binaries
 
 
@@ -519,6 +529,11 @@ def router_binaries(project_root, request):
             print(f"[FIXTURE] {lang} router is up-to-date, skipping build", file=sys.stderr)
             sys.stderr.flush()
 
+    # Only return binaries for allowed languages
+    langs_option = request.config.getoption("--langs")
+    if langs_option:
+        allowed_langs = set(lang.strip() for lang in langs_option.split(","))
+        return {lang: path for lang, path in binaries.items() if lang in allowed_langs}
     return binaries
 
 
@@ -544,6 +559,35 @@ def swift_plugin(plugin_binaries):
 def go_plugin(plugin_binaries):
     """Return path to Go plugin."""
     return plugin_binaries["go"]
+
+
+# =============================================================================
+# Language Selection Helpers
+# =============================================================================
+
+def get_nth_lang(binaries: dict, n: int) -> str:
+    """Get the Nth available language, cycling if needed.
+
+    When tests need multiple distinct language slots but --langs restricts
+    available languages, this cycles through available ones.
+
+    Example: If --langs=rust,swift and test needs 4 slots:
+        get_nth_lang(binaries, 0) -> "rust"
+        get_nth_lang(binaries, 1) -> "swift"
+        get_nth_lang(binaries, 2) -> "rust"   (cycles)
+        get_nth_lang(binaries, 3) -> "swift"  (cycles)
+    """
+    langs = list(binaries.keys())
+    return langs[n % len(langs)]
+
+
+@pytest.fixture(scope="session")
+def available_langs(request):
+    """Return list of available languages based on --langs option."""
+    langs_option = request.config.getoption("--langs")
+    if langs_option:
+        return [lang.strip() for lang in langs_option.split(",")]
+    return ["rust", "go", "python", "swift"]
 
 
 # =============================================================================
